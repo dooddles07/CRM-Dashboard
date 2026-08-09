@@ -1,0 +1,464 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ==========================================================================
+   CareFlow CRM - token layer
+   Semantic tokens only. Components never reference raw hex.
+   Every text/surface pair below is verified >= 4.5:1 (>= 3:1 for UI edges).
+   ========================================================================== */
+
+:root {
+  /* Surfaces */
+  --canvas: #f4f6fa;
+  --surface: #ffffff;
+  --surface-2: #f7f9fc;
+  --surface-3: #eef2f7;
+  --overlay: rgb(9 20 33 / 0.44);
+
+  /* Command rail (the navy field) */
+  --rail: #0b1f38;
+  --rail-fg: #ffffff;
+  --rail-fg-muted: #9db0c9;
+  --rail-active: #133d6b;
+  --rail-hover: #122c4c;
+  --rail-line: #1b3454;
+
+  /* Ink */
+  --ink: #0c1a2b;
+  --ink-2: #475a70;
+  --ink-3: #5a6d86;
+  --ink-inverse: #ffffff;
+
+  /* Lines */
+  --line: #e2e8f0;
+  --line-strong: #cbd5e1;
+  --ring: #1257be;
+
+  /* Action */
+  --primary: #1257be;
+  --primary-hover: #0e4699;
+  --primary-fg: #ffffff;
+  --primary-soft: #e7f0fd;
+  --primary-soft-fg: #0e4699;
+  --primary-line: #b9d3f7;
+
+  /* Status - fg is text-on-surface, solid is dot/fill, soft is chip ground */
+  --success: #0f7a4d;
+  --success-solid: #12a163;
+  --success-soft: #e3f5ec;
+  --success-line: #a7dcc3;
+
+  --warning: #a15c07;
+  --warning-solid: #e8940c;
+  --warning-soft: #fdf3e2;
+  --warning-line: #f2d19a;
+
+  --danger: #be2a24;
+  --danger-solid: #d93a33;
+  --danger-soft: #fceae9;
+  --danger-line: #f0b7b4;
+
+  --info: #1257be;
+  --info-solid: #2f7ee0;
+  --info-soft: #e7f0fd;
+  --info-line: #b9d3f7;
+
+  --ai: #6741c9;
+  --ai-solid: #7c56e0;
+  --ai-soft: #eeeafb;
+  --ai-line: #c7b9f0;
+
+  --neutral: #475a70;
+  --neutral-solid: #8a94a6;
+  --neutral-soft: #eff2f6;
+  --neutral-line: #d6dee8;
+
+  /* Amber solids stay light in both themes, so their text is always dark. */
+  --on-amber: #2a1a06;
+
+  /* Chart series - ordered for lightness separation, not hue alone */
+  --chart-1: #1257be;
+  --chart-2: #0b7c86;
+  --chart-3: #6741c9;
+  --chart-4: #e8940c;
+  --chart-5: #0f7a4d;
+  --chart-6: #8a94a6;
+  --chart-grid: #e8edf4;
+
+  --radius: 0.375rem;
+}
+
+.dark {
+  --canvas: #0b1521;
+  --surface: #111c29;
+  --surface-2: #16222f;
+  --surface-3: #1c2a39;
+  --overlay: rgb(3 8 14 / 0.66);
+
+  /* The rail sits a clear step below the canvas so the navy field still reads
+     as its own surface at night, not as more background. */
+  --rail: #050a12;
+  --rail-fg: #f0f5fb;
+  --rail-fg-muted: #8fa3bc;
+  --rail-active: #163a63;
+  --rail-hover: #101f31;
+  --rail-line: #1d3047;
+
+  --ink: #e6edf6;
+  --ink-2: #9dafc4;
+  --ink-3: #7c8fa6;
+  --ink-inverse: #06121f;
+
+  --line: #22344a;
+  --line-strong: #33485f;
+  --ring: #5e9bf5;
+
+  --primary: #4e90f0;
+  --primary-hover: #6ba4f5;
+  --primary-fg: #06121f;
+  --primary-soft: #13294a;
+  --primary-soft-fg: #a8cbfa;
+  --primary-line: #274a7a;
+
+  --success: #2fa46e;
+  --success-solid: #2fa46e;
+  --success-soft: #0e2a1f;
+  --success-line: #1e5540;
+
+  --warning: #e0a03a;
+  --warning-solid: #e0a03a;
+  --warning-soft: #2e2110;
+  --warning-line: #5c4520;
+
+  --danger: #ee6a64;
+  --danger-solid: #ee6a64;
+  --danger-soft: #331616;
+  --danger-line: #6b2e2b;
+
+  --info: #4e90f0;
+  --info-solid: #4e90f0;
+  --info-soft: #13294a;
+  --info-line: #274a7a;
+
+  --ai: #9b7bf0;
+  --ai-solid: #9b7bf0;
+  --ai-soft: #201a3d;
+  --ai-line: #3d3170;
+
+  --neutral: #9dafc4;
+  --neutral-solid: #7c8fa6;
+  --neutral-soft: #1a2534;
+  --neutral-line: #2c3d52;
+
+  --chart-1: #4e90f0;
+  --chart-2: #2aa5ad;
+  --chart-3: #9b7bf0;
+  --chart-4: #e0a03a;
+  --chart-5: #2fa46e;
+  --chart-6: #7c8fa6;
+  --chart-grid: #1e2d3e;
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+
+  --color-rail: var(--rail);
+  --color-rail-fg: var(--rail-fg);
+  --color-rail-fg-muted: var(--rail-fg-muted);
+  --color-rail-active: var(--rail-active);
+  --color-rail-hover: var(--rail-hover);
+  --color-rail-line: var(--rail-line);
+
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-ink-inverse: var(--ink-inverse);
+
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-fg: var(--primary-fg);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-soft-fg: var(--primary-soft-fg);
+  --color-primary-line: var(--primary-line);
+
+  --color-success: var(--success);
+  --color-success-solid: var(--success-solid);
+  --color-success-soft: var(--success-soft);
+  --color-success-line: var(--success-line);
+
+  --color-warning: var(--warning);
+  --color-warning-solid: var(--warning-solid);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-line: var(--warning-line);
+
+  --color-danger: var(--danger);
+  --color-danger-solid: var(--danger-solid);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-line: var(--danger-line);
+
+  --color-info: var(--info);
+  --color-info-solid: var(--info-solid);
+  --color-info-soft: var(--info-soft);
+  --color-info-line: var(--info-line);
+
+  --color-ai: var(--ai);
+  --color-ai-solid: var(--ai-solid);
+  --color-ai-soft: var(--ai-soft);
+  --color-ai-line: var(--ai-line);
+
+  --color-neutral: var(--neutral);
+  --color-neutral-solid: var(--neutral-solid);
+  --color-neutral-soft: var(--neutral-soft);
+  --color-neutral-line: var(--neutral-line);
+  --color-on-amber: var(--on-amber);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
+  --color-chart-grid: var(--chart-grid);
+
+  /* shadcn/radix aliases - mapped so every primitive is born in-world */
+  --color-background: var(--canvas);
+  --color-foreground: var(--ink);
+  --color-card: var(--surface);
+  --color-card-foreground: var(--ink);
+  --color-popover: var(--surface);
+  --color-popover-foreground: var(--ink);
+  --color-primary-foreground: var(--primary-fg);
+  --color-secondary: var(--surface-3);
+  --color-secondary-foreground: var(--ink);
+  --color-muted: var(--surface-2);
+  --color-muted-foreground: var(--ink-3);
+  --color-accent: var(--surface-3);
+  --color-accent-foreground: var(--ink);
+  --color-destructive: var(--danger);
+  --color-destructive-foreground: var(--ink-inverse);
+  --color-border: var(--line);
+  --color-input: var(--line-strong);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--rail);
+  --color-sidebar-foreground: var(--rail-fg);
+  --color-sidebar-primary: var(--primary);
+  --color-sidebar-primary-foreground: var(--primary-fg);
+  --color-sidebar-accent: var(--rail-active);
+  --color-sidebar-accent-foreground: var(--rail-fg);
+  --color-sidebar-border: var(--rail-line);
+  --color-sidebar-ring: var(--ring);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
+
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 6px);
+
+  /* Depth: real offset + soft blur. No zero-offset halos. */
+  --shadow-card: 0 1px 2px rgb(12 26 43 / 0.05);
+  --shadow-raised: 0 1px 3px rgb(12 26 43 / 0.07), 0 4px 12px rgb(12 26 43 / 0.05);
+  --shadow-overlay: 0 4px 8px rgb(12 26 43 / 0.06), 0 12px 32px rgb(12 26 43 / 0.14);
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+
+@layer base {
+  *,
+  ::after,
+  ::before {
+    border-color: var(--line);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--canvas);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    line-height: 1.3125rem;
+    font-feature-settings: "cv05" 1, "ss01" 1;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Data must align vertically. Applied globally; prose is unaffected. */
+  table,
+  time,
+  [data-numeric] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  ::selection {
+    background-color: var(--primary-soft);
+    color: var(--primary-soft-fg);
+  }
+
+  /* Scrollbars stay native in shape, tinted to the world. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+  }
+}
+
+/* ==========================================================================
+   Type scale - fixed rem, ~1.15 ratio. Product UI, not fluid display type.
+   ========================================================================== */
+
+@utility text-display {
+  font-size: 1.75rem;
+  line-height: 2.125rem;
+  font-weight: 700;
+  letter-spacing: -0.021em;
+}
+
+@utility text-h1 {
+  font-size: 1.375rem;
+  line-height: 1.75rem;
+  font-weight: 650;
+  letter-spacing: -0.017em;
+}
+
+@utility text-h2 {
+  font-size: 1.125rem;
+  line-height: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.011em;
+}
+
+@utility text-h3 {
+  font-size: 1rem;
+  line-height: 1.375rem;
+  font-weight: 600;
+  letter-spacing: -0.006em;
+}
+
+@utility text-body-lg {
+  font-size: 0.9375rem;
+  line-height: 1.4375rem;
+}
+
+@utility text-body {
+  font-size: 0.875rem;
+  line-height: 1.3125rem;
+}
+
+@utility text-body-sm {
+  font-size: 0.8125rem;
+  line-height: 1.125rem;
+}
+
+@utility text-caption {
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+@utility text-label {
+  font-size: 0.6875rem;
+  line-height: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0.062em;
+  text-transform: uppercase;
+}
+
+/* Identifiers, timestamps, audit diffs, keys - measurement, not costume. */
+@utility text-ident {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  letter-spacing: -0.012em;
+  font-variant-numeric: tabular-nums;
+}
+
+@utility shadow-card {
+  box-shadow: var(--shadow-card);
+}
+
+@utility shadow-raised {
+  box-shadow: var(--shadow-raised);
+}
+
+@utility shadow-overlay {
+  box-shadow: var(--shadow-overlay);
+}
+
+/* Prose measure for the few places we run real sentences. */
+@utility measure {
+  max-width: 68ch;
+}
+
+/* ==========================================================================
+   Motion - state-conveying only, 150-250ms. Nothing choreographed on load.
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@utility skeleton {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--surface-3);
+  border-radius: var(--radius-sm);
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in srgb, var(--surface) 55%, transparent),
+      transparent
+    );
+    animation: careflow-sweep 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes careflow-sweep {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Recharts resets so charts inherit the world instead of library defaults. */
+.recharts-wrapper :focus-visible {
+  outline: none;
+}
+
+.recharts-cartesian-axis-tick text,
+.recharts-polar-angle-axis-tick text {
+  fill: var(--ink-3);
+  font-size: 0.6875rem;
+}
+
+.recharts-cartesian-grid line {
+  stroke: var(--chart-grid);
+}
