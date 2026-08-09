@@ -90,7 +90,73 @@ ESLint 9+ with a circular-structure error.
 
 ---
 
-## Batch 2 - Command Center + Patient 360 (not started)
+## Batch 2 - Command Center + Patient 360 (complete)
 
-Dashboard (8 KPIs, 6 charts, AI insights, today's operations), patient list, add patient,
-Patient 360 with 9 tabs on the Record Spine anatomy.
+### Decisions
+
+- **TanStack Table v8, not v9.** `@latest` installed 9.1.2, which ships a rewritten API
+  (`useTable`, new feature opt-in) rather than v8's `useReactTable`. Absorbing an unstable API
+  mid-build was the wrong risk for a table that needs sorting, filtering, selection, and
+  pagination over static fixtures, so the dependency is pinned to `^8`.
+- **Sparklines are hand-drawn SVG, not Recharts.** Eight chart instances for 12-point traces is
+  waste; the component is ~40 lines and inherits the token palette directly.
+- **The lead funnel is proportional bars, not a tapered funnel.** The drop between two stages is
+  the number staff act on, and a taper hides it. Each row carries its own drop-off percentage.
+- **The Spine is derived, not authored.** `lib/timeline.ts` merges appointments, follow-ups,
+  messages, tasks, feedback, referrals, and notes into one chronology, so every patient has a
+  real timeline instead of only the hand-written ones.
+
+### Built
+
+- `lib/data/` - `scheduling.ts` (32 appointments across today, upcoming, history), `work.ts`
+  (21 follow-ups, 14 tasks), `analytics.ts` (8 KPIs, 6 chart series, 4 AI insights, alerts),
+  `patient-record.ts` (conversations, referrals, feedback, documents, notes).
+- `lib/timeline.ts` - the Spine builder and its date grouping.
+- `components/data/` - `DataTable` (sort, filter, selection, bulk actions, pagination, density),
+  `KpiCard`, `Sparkline`, `charts.tsx` (growth line, stacked bar, donut, funnel, horizontal bar,
+  satisfaction area).
+- `components/record/` - `RecordHeader` (the shared entity anatomy) and `Spine`.
+- `components/patient/` - overview and the eight record tabs.
+- Routes: `/` (Command Center), `/patients`, `/patients/new`, `/patients/[id]`.
+
+### Defects found in the inspection round and fixed
+
+1. **Masked phone numbers wrapped across four lines** in the patients table, doubling row height
+   and destroying the row rhythm. `Protected` now sets `whitespace-nowrap` on both states, and
+   `DataTable` takes a `minWidth` so wide tables scroll instead of crushing columns.
+2. **The Spine had no visible connecting rule** - the whole point of the metaphor. Markers sat
+   left of the border and their `ring-4` masked it. Rebuilt the geometry: rule at `left-3`,
+   markers at `-left-9` to cancel the list padding so glyph centres land on the rule.
+3. **Then the markers overlapped the titles** ("w-up appointment", "act number updated") because
+   `left-0` resolves inside the list's padding box. Same fix, second pass.
+4. **~340px of dead space** on the dashboard where the Patient growth panel ended well above the
+   taller AI insights panel. Restructured into two independently flowing columns.
+5. **Donut legend truncated every department** to "General…", "Internal…" in a third-width panel.
+   Legend moved below the chart at full width.
+6. **Recharts dropped 3 of 7 category ticks** on the acquisition chart. `interval={0}`.
+7. "Pending confirmation" chip clipped at the table edge - shortened to "Pending".
+8. Timeline titles were ambiguous ("Follow-up confirmed" for an appointment) and repeated the
+   doctor's name as both detail and actor. Appointment events now read "Follow-up appointment ·
+   confirmed" with no duplicate actor line.
+9. "Your tasks today" listed other people's tasks and silently included overdue ones. Retitled,
+   with an explicit overdue marker.
+10. New patients recorded `Walk In` instead of `Walk-in`, and stamped real wall-clock time rather
+    than the demo clock.
+
+### Verification
+
+- `tsc --noEmit` clean · `next build` clean, 10 routes · `eslint` 0 errors.
+- One standing lint warning: React Compiler skips memoizing `useReactTable`. Inherent to the
+  library, not suppressible without disabling a real rule. Left visible on purpose.
+- Playwright at 1440x1024 and 375x812. No page-level horizontal scroll on any route
+  (`scrollWidth === clientWidth`); the wide patients table scrolls inside its own container,
+  which is intended.
+- Interaction proof: completed the three-step Add Patient flow, which created PT-103657, routed
+  to the new record, fired the toast, and rendered correct empty states across all six panels.
+
+---
+
+## Batch 3 - Scheduling + People (not started)
+
+Appointment list, calendar (day/week/month), create-appointment modal, doctors list and profile,
+departments dashboard, staff roster.

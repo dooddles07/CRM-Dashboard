@@ -50,7 +50,7 @@ export function Protected({
 
   if (revealed) {
     return (
-      <span className={cn("inline-flex items-center gap-1.5", className)}>
+      <span className={cn("inline-flex items-center gap-1.5 whitespace-nowrap", className)}>
         <span className={cn(mono && "text-ident")}>{value}</span>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -74,13 +74,16 @@ export function Protected({
           type="button"
           onClick={handleReveal}
           className={cn(
-            "group inline-flex items-center gap-1.5 rounded-[3px] text-left",
+            "group inline-flex items-center gap-1.5 whitespace-nowrap rounded-[3px] text-left",
             "text-ink-3 transition-colors duration-150 hover:text-ink cursor-pointer",
             className,
           )}
           aria-label={`Reveal ${field}. This will be recorded in the audit log.`}
         >
-          <span className={cn("tracking-[0.06em]", mono && "text-ident")} aria-hidden>
+          <span
+            className={cn("whitespace-nowrap tracking-[0.06em]", mono && "text-ident")}
+            aria-hidden
+          >
             {mask(value, kind)}
           </span>
           <Eye

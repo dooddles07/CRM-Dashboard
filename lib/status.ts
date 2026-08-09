@@ -50,7 +50,7 @@ export interface StatusMeta {
 
 export const appointmentStatus: Record<AppointmentStatus, StatusMeta> = {
   requested: { label: "Requested", tone: "neutral", icon: CircleDashed },
-  pending: { label: "Pending confirmation", tone: "warning", icon: Hourglass },
+  pending: { label: "Pending", tone: "warning", icon: Hourglass },
   confirmed: { label: "Confirmed", tone: "info", icon: CalendarCheck },
   "checked-in": { label: "Checked in", tone: "info", icon: LogIn },
   "in-consultation": { label: "In consultation", tone: "ai", icon: Stethoscope },
