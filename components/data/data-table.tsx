@@ -25,6 +25,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { EmptyState } from "./states";
+import { useCareflow } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 export interface DataTableProps<T> {
@@ -39,7 +40,7 @@ export interface DataTableProps<T> {
   pageSize?: number;
   getRowId?: (row: T) => string;
   onRowClick?: (row: T) => void;
-  /** Compact drops the row height from 44px to 34px. */
+  /** Compact drops the row height from 44px to 34px. Defaults to the app density. */
   density?: "comfortable" | "compact";
   /** Minimum table width before horizontal scrolling starts, e.g. "68rem". */
   minWidth?: string;
@@ -55,10 +56,12 @@ export function DataTable<T>({
   pageSize = 12,
   getRowId,
   onRowClick,
-  density = "comfortable",
+  density,
   minWidth,
   className,
 }: DataTableProps<T>) {
+  const storeDensity = useCareflow((s) => s.density);
+  const effectiveDensity = density ?? storeDensity;
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
@@ -84,7 +87,7 @@ export function DataTable<T>({
 
   const rows = table.getRowModel().rows;
   const selected = table.getSelectedRowModel().rows.map((r) => r.original);
-  const cellPad = density === "compact" ? "px-3 py-1.5" : "px-3 py-2.5";
+  const cellPad = effectiveDensity === "compact" ? "px-3 py-1.5" : "px-3 py-2.5";
 
   return (
     <div className={cn("rounded-lg border border-line bg-surface shadow-card", className)}>
@@ -118,7 +121,7 @@ export function DataTable<T>({
                         }
                         className={cn(
                           "whitespace-nowrap text-left text-label text-ink-3",
-                          density === "compact" ? "px-3 py-1.5" : "px-3 py-2",
+                          effectiveDensity === "compact" ? "px-3 py-1.5" : "px-3 py-2",
                         )}
                         style={{ width: header.getSize() === 150 ? undefined : header.getSize() }}
                       >
