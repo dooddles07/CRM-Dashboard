@@ -18,6 +18,7 @@ import {
 import { bytea } from "./columns";
 import { channel, doctorStatus, patientStatus, staffStatus } from "./enums";
 import { departments } from "./org";
+import { user } from "./auth";
 
 /**
  * docs/DATABASE.md §2.3, plus the encrypted contact columns from
@@ -182,16 +183,15 @@ export const patientDocuments = pgTable("patient_documents", {
 });
 
 /**
- * `user_id` is left unconstrained here — Phase 02 adds the FK once
- * Better Auth's own user table exists, kept deliberately separate per
- * audit risk R8. `role` stays TEXT; Phase 03 turns the nine-role matrix
- * into code and decides there whether it becomes an enum or a lookup
- * table.
+ * `role` stays TEXT; Phase 03 turns the nine-role matrix into code and
+ * decides there whether it becomes an enum or a lookup table.
  */
 export const staff = pgTable("staff", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   reference: text("reference").notNull().unique(),
-  userId: uuid("user_id"),
+  // TEXT, not UUID — Better Auth generates its own (cuid-style) primary
+  // keys for `user`, per plan/02-authentication.md §2.2.
+  userId: text("user_id").unique().references(() => user.id),
   name: text("name").notNull(),
   initials: text("initials").notNull(),
   role: text("role").notNull(),
