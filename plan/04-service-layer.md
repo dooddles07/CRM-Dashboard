@@ -227,14 +227,24 @@ WHERE actor_id = $1 AND action = 'revealed' AND occurred_at > now() - interval '
 
 | Window | Limit | On exceed |
 |---|---|---|
-| 1 hour | 40 | 429 `REVEAL_RATE_EXCEEDED` |
-| 24 hours | 200 | 429, plus a `security` notification to Hospital Admins |
+| 1 hour | 100 | 429 `REVEAL_RATE_EXCEEDED` |
+| 24 hours | 500 | 429, plus a `security` notification to Hospital Admins |
 
 Exported contact columns count against the same budget, one per row — otherwise the limit is
 bypassed by clicking Export.
 
-Limits are configuration, not constants in code, so they can be raised for a role that legitimately
-needs it without a deployment.
+These are set to interrupt as little legitimate work as possible: a Patient Relations desk working
+a call list should never meet them. That makes them a backstop rather than the primary control,
+and it shifts the weight onto detection — Phase 09 §3 alerts a human at 60 an hour, well before
+the block. The visible badge and the audit entry remain the deterrent, exactly as
+`docs/SECURITY.md` §4 argues.
+
+The trade is deliberate and worth naming: a determined insider can pull all 24 contact records in
+one sitting without tripping the limit. They cannot do it without leaving 24 audit entries and
+firing an alert at the 60th.
+
+Limits are configuration, not constants in code, so they can be tightened from the first month's
+audit data without a deployment.
 
 ---
 
@@ -337,7 +347,7 @@ the division of responsibility.
 | `integrations` | Connect, disconnect, sync status | Credentials encrypted, never returned |
 | `staff` | Directory, invite, role change, suspend | Role change writes audit with before and after |
 | `doctors` | Directory, schedule, availability | |
-| `departments` | Directory, rollups | Rollups from the view in Phase 01 §4.7 |
+| `departments` | Directory, rollups | Rollups from the view in Phase 01 §4.8 |
 | `analytics` | KPIs, series, insights | Aggregates only. No PII in any return shape |
 | `notifications` | List, mark read | Per staff member |
 | `preferences` | Density, theme, rail | Replaces the UI slice of the zustand store |
@@ -374,7 +384,8 @@ The component contract does not change: mask, click, unmask, badge.
 - [ ] `reveal` returns a value only after its audit entry is committed
 - [ ] Killing the audit insert makes `reveal` return nothing — tested by fault injection
 - [ ] An out-of-scope reveal returns 404, not 403
-- [ ] 41 reveals in an hour produces a 429 on the 41st
+- [ ] 101 reveals in an hour produces a 429 on the 101st
+- [ ] The 60th reveal in an hour fires a `security` notification without blocking
 - [ ] Exporting 30 rows with contact columns consumes 30 of the budget
 - [ ] `updated` writes one audit entry per changed field
 - [ ] A double-booked appointment surfaces as 409 `SLOT_CONFLICT`, never a 500

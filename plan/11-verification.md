@@ -53,7 +53,8 @@ response body. Crude, and it cannot be argued with.
 | Forcing the audit insert to fail returns no value and leaves no audit entry |
 | A reveal by Marketing is refused |
 | A reveal by a Nurse against another department returns 404, not 403 |
-| The 41st reveal in an hour returns 429 |
+| The 101st reveal in an hour returns 429 |
+| The 60th reveal in an hour alerts without blocking |
 | Exporting 30 rows with contact columns consumes 30 of the budget |
 | An API token cannot reveal, whatever role it inherits |
 

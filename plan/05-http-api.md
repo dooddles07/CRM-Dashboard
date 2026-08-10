@@ -161,9 +161,16 @@ caller lacks; the server enforces regardless.
 
 | Route | Purpose |
 |---|---|
+| `POST /api/v1/patients/{ref}/documents` | Upload. Multipart, 10 MB cap, magic-byte type check. Phase 08 §3.4 |
+| `GET /api/v1/documents/{id}` | Download. Streamed, always `attachment`, writes an `exported` audit entry |
+| `DELETE /api/v1/documents/{id}` | Soft delete. The blob is removed; the row and its audit trail are not |
 | `POST /api/webhooks/delivery/{provider}` | Delivery receipts. Signature-verified. Not under `/v1` — it is not part of the public contract |
 | `POST /api/cron/drain` | Queue drain. Bearer `CRON_SECRET`. Phase 07 |
 | `GET /api/health` | Liveness, database reachability, next audit partition present, queue depth. Phase 09 |
+
+Document routes are the one place a request body is not JSON and not Zod-parsed as a whole. The
+metadata fields are still validated; the byte stream is validated by the controls in Phase 08
+§3.4 instead.
 
 Webhook handlers verify the signature **before** parsing the body, are idempotent on the
 provider's event id, and return 200 for a duplicate rather than reprocessing.

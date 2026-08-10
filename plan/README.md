@@ -26,6 +26,10 @@ work that would otherwise appear.
 | Time | Real `now()`, nightly re-anchored demo dataset | Nothing; adds `seed_anchor` |
 | Budget | Free tiers only | Upstash Redis, Vercel Pro cron, Neon paid compute |
 | Data access | Service layer, Server Components, Server Actions, thin REST | A client-side query cache and 37 sets of fetch hooks |
+| Error tracking | Structured logs plus an `error_log` table. No Sentry | The only outbound dependency the alternative would add |
+| Domain | The Vercel-assigned one | Custom DNS, SPF/DKIM/DMARC, an HSTS preload submission |
+| Reveal budget | 100 an hour, 500 a day | Nothing — it shifts weight from prevention to detection |
+| Documents | Real uploads, Vercel Blob, private | Malware scanning, which has no trustworthy free option |
 
 Rationale for each is in [12-decisions-and-risks.md](12-decisions-and-risks.md).
 
@@ -36,6 +40,7 @@ Rationale for each is in [12-decisions-and-risks.md](12-decisions-and-risks.md).
 | Piece | Choice | Reason |
 |---|---|---|
 | Database | Neon Postgres | Vercel-native, scales to zero, branch per pull request |
+| File storage | Vercel Blob, private access | Serverless functions have no durable filesystem. Free tier, and no public bucket to misconfigure |
 | ORM | Drizzle | No engine binary. Prisma's adds cold-start weight that matters on a free function |
 | Auth | Better Auth | TOTP, session management, and an admin plugin cover provisioning, MFA, and `/admin/users` without custom work |
 | Hashing | `@node-rs/argon2` | argon2id, per SECURITY.md §3.1 |
@@ -102,15 +107,15 @@ Estimates are working sessions, not calendar time. They assume one person and no
 | 01 Foundation | 3–4 | Schema authoring, seed transformation |
 | 02 Authentication | 2–3 | TOTP enrolment and the invite flow |
 | 03 Authorisation | 2 | RLS policies and testing them |
-| 04 Service layer | 4–5 | 15 services, DTOs, the reveal transaction |
-| 05 HTTP API | 2–3 | Route handlers over existing services |
+| 04 Service layer | 4–5 | 20 services, DTOs, the reveal transaction |
+| 05 HTTP API | 3–4 | Route handlers, plus the document upload and download path |
 | 06 Screen migration | 6–8 | 37 pages, mechanical but unavoidable |
 | 07 Jobs and messaging | 3–4 | Provider adapters and delivery simulation |
-| 08 Security hardening | 2 | CSP nonce threading through `chart.tsx` |
-| 09 Observability | 1 | |
+| 08 Security hardening | 3 | The `chart.tsx` CSP change and the upload controls |
+| 09 Observability | 1–2 | `error_log` replaces a hosted tracker |
 | 10 Deployment | 1–2 | CI and the migration workflow |
 
-Roughly 26–34 sessions. The two that overrun are 04 and 06.
+Roughly 28–37 sessions. The two that overrun are 04 and 06.
 
 ---
 

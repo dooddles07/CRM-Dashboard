@@ -182,7 +182,7 @@ makes.
 | `/` | 249 | `analytics.kpis`, `appointments.today`, `followups.overdue`, `complaints.breaching`, `analytics.insights` |
 | `/analytics` | 167 | `analytics.series`, `analytics.rollups` |
 | `/reports` | 140 | `analytics.reports` |
-| `/departments` | 164 | `departments.list` — from the rollup view, Phase 01 §4.7 |
+| `/departments` | 164 | `departments.list` — from the rollup view, Phase 01 §4.8 |
 | `/ai` | 154 | None. Canned response stays canned |
 
 `/` makes five service calls. They run in parallel — `Promise.all`, not sequential awaits, or the

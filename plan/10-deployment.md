@@ -20,6 +20,21 @@ is what makes per-pull-request database testing affordable here.
 A preview deployment gets its own database. It must, because previews run migrations, and a
 migration against a shared database from an unmerged branch is how a preview breaks production.
 
+### 1.0 Domain
+
+`crm-dashboard-beta-ebon.vercel.app`, per D10. Three things follow from it and are worth writing
+down so that moving to a custom domain later is one change rather than an investigation:
+
+| Depends on the domain | Value now | On a custom domain |
+|---|---|---|
+| `BETTER_AUTH_URL` | the Vercel URL | the custom origin |
+| Session cookie scope | host-only on the `vercel.app` subdomain | host-only on the custom host |
+| HSTS preload submission | not submitted — `vercel.app` is already preloaded | submit once settled |
+| Message sender identity | sandbox only, no sender needed | needs SPF, DKIM, DMARC before live sending |
+
+All four read from one module, `lib/server/config/origin.ts`, rather than from scattered
+environment lookups. Changing domain is then a variable and a DNS record.
+
 ### 1.1 Preview deployments are not public
 
 The deployment today is open to anyone with the URL, which was correct for a demonstration. After
@@ -33,7 +48,8 @@ protection so that an unmerged branch is not reachable at all.
 | `DATABASE_URL` | dev branch | per-PR branch | main branch |
 | `DATABASE_URL_UNPOOLED` | ✓ | ✓ | ✓ |
 | `BETTER_AUTH_SECRET` | dev value | preview value | **distinct** |
-| `BETTER_AUTH_URL` | `http://localhost:3000` | deployment URL | canonical domain |
+| `BETTER_AUTH_URL` | `http://localhost:3000` | deployment URL | `https://crm-dashboard-beta-ebon.vercel.app` |
+| `BLOB_READ_WRITE_TOKEN` | dev store | preview store | **distinct** production store |
 | `PII_ENCRYPTION_KEY` | dev value | preview value | **distinct** |
 | `CRON_SECRET` | dev value | preview value | **distinct** |
 | `PROVIDER_MODE` | `sandbox` | `sandbox` | `sandbox` |

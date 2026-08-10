@@ -107,6 +107,69 @@ components and swaps their imports — a much smaller diff per file. It was reje
 puts a network round trip on every filter change and spreads loading-state handling across
 thirty-seven files.
 
+### D9 — No third-party error tracker
+
+Structured logs plus an `error_log` table in the product's own Postgres. Sentry was considered and
+rejected.
+
+**Why.** It would be the only component transmitting anything about the application to an outside
+service. `docs/SECURITY.md` §2.7's claim that nothing phones home survives largely intact without
+it, and that claim is worth more here than the convenience.
+
+**The gap it leaves, and how it is covered.** Vercel Hobby's log retention is short, so an
+unhandled exception in a Server Action would otherwise vanish. Persisting errors to `error_log`
+with the same reference the user sees in `ErrorState` keeps them findable, and `/admin/security`
+gains a panel to read them. One table, one insert path, no outbound dependency.
+
+**Revisit if** debugging repeatedly needs stack aggregation, release tracking, or breadcrumbs that
+a flat table cannot give.
+
+### D10 — Vercel domain for now
+
+`crm-dashboard-beta-ebon.vercel.app`. No custom domain.
+
+**Why.** Costs nothing, works immediately, and nothing in this programme depends on a custom
+origin.
+
+**Consequences.** HSTS preload is not submitted — `vercel.app` is already preloaded as a whole, so
+a subdomain submission is neither possible nor useful. Cookies are host-only on the subdomain.
+Live email sending would need SPF, DKIM, and DMARC on a domain you control, which is one more
+reason `PROVIDER_MODE` stays `sandbox`.
+
+**Kept cheap to reverse** by reading the origin from one module, `lib/server/config/origin.ts`,
+rather than from scattered environment lookups. Moving is then a variable and a DNS record.
+
+### D11 — Reveal budget set loose
+
+100 an hour, 500 a day, per staff member. Exports consume one per row.
+
+**Why.** Set to interrupt as little legitimate work as possible. A Patient Relations desk working
+a call list should never meet the limit.
+
+**The trade, stated plainly.** A determined insider can pull all 24 contact records in one sitting
+without tripping it. They cannot do it without leaving 24 audit entries and firing an alert at the
+60th. This moves the weight from prevention to detection, which is what `docs/SECURITY.md` §4
+argues for anyway: *"Prevention is impossible; detection is not."*
+
+**Revisit** after a month of real audit data. The values are configuration, so tightening them is
+not a deployment.
+
+### D12 — Real document uploads
+
+The documents tab on `/patients/[id]` accepts real files. Vercel Blob, private access, magic-byte
+type checking, 10 MB cap, authenticated streaming download, audit on both upload and download.
+
+**Why.** D2 said every screen writes, and the documents tab was the one surface still pretending.
+
+**The accepted gap.** No malware scanning — there is no free service worth trusting, and D7 rules
+out paid ones. Mitigated by an allowlist that excludes every executable and archive format, magic-
+byte checking so a renamed executable is rejected rather than stored, and
+`Content-Disposition: attachment` on every download so nothing executes in the application's
+origin. `scan_status` exists as a column for the day a scanner is added.
+
+**This is defensible for fictional records and not for real ones.** It is the second item, after
+D1, that must change if real patient data ever arrives.
+
 ---
 
 ## 2. Technical decisions
@@ -139,7 +202,7 @@ Each of these was considered and consciously left out. None is forgotten.
 | X2 | WebAuthn | `docs/SECURITY.md` §3.1 prefers it; TOTP is the stated minimum and covers stolen credentials | Real patient records, or a user asking |
 | X3 | Audit hash chaining | Makes tampering detectable rather than merely prohibited. Grants already prohibit it | A compliance requirement |
 | X4 | Shipping audit entries to a separate system | The more valuable of the two integrity measures — an attacker with database access should not also control the record of it | Real patient records. Higher priority than X3 |
-| X5 | File uploads | Needs content sniffing, size caps, storage outside the web root, authenticated serving, and malware scanning that has no trustworthy free option. Phase 08 §3.4 | A reason to accept real files |
+| ~~X5~~ | ~~File uploads~~ | **Promoted into scope.** See D12 and Phase 08 §3.4 | — |
 | X6 | A billing surface | The role matrix names Billing as an area; no route serves it. Policy for a future surface is harmless | A billing screen |
 | X7 | A real AI console | `/ai` returns a canned answer. Wiring a model is a separate piece of work with its own cost and its own data-handling questions | Deliberate decision to build it |
 | X8 | Server-side pagination beyond three collections | Departments, doctors, and staff are bounded by how many a hospital has | A collection passing a few hundred rows |
@@ -153,13 +216,17 @@ Each of these was considered and consciously left out. None is forgotten.
 
 Not decided. Each needs an answer before the phase that depends on it.
 
-| # | Question | Needed by | Default if unanswered |
+Four of the five original questions are now answered and have moved into §1 and §2.
+
+| # | Question | Needed by | Status |
 |---|---|---|---|
-| O1 | Sentry, or structured logs only? It is the only component transmitting anything to a third party, and `docs/SECURITY.md` §2.7 must be corrected either way | Phase 09 | Logs only. Fewer moving parts, and the claim in §2.7 stays closer to true |
-| O2 | Reveal budget numbers — 40/hour and 200/day are a starting guess | Phase 04 | Ship the guess as configuration and tune from the first month's audit data |
-| O3 | Anomaly thresholds in Phase 09 §3 | Phase 09 | Ship them, expect them to be noisy, tune down |
-| O4 | Does Neon's free plan retention window make point-in-time restore a real recovery path? | Phase 10 | Assume not. Add a nightly `pg_dump` to object storage |
-| O5 | Canonical domain. `BETTER_AUTH_URL`, the HSTS preload submission, and cookie scope all depend on it | Phase 10 | The Vercel-assigned domain. HSTS preload is not submitted until it is settled |
+| ~~O1~~ | Sentry, or structured logs only? | Phase 09 | **Answered.** Logs only, plus `error_log` — D9 |
+| ~~O2~~ | Reveal budget numbers | Phase 04 | **Answered.** 100/hour, 500/day — D11 |
+| O3 | Anomaly thresholds in Phase 09 §3 | Phase 09 | **Open.** Reveal thresholds are now pinned to D11 — alert at 60, block at 100. The other six are still guesses. Ship them, expect noise, tune down |
+| O4 | Does Neon's free plan retention window make point-in-time restore a real recovery path? | Phase 10 | **Open, but it is a lookup rather than a decision.** Check the current plan when provisioning. Assume not, and add a nightly `pg_dump` to object storage until confirmed |
+| ~~O5~~ | Canonical domain | Phase 10 | **Answered.** Vercel domain, no preload submission — D10 |
+
+O3 and O4 both resolve during the phase that needs them and neither blocks starting work.
 
 ---
 
@@ -178,6 +245,8 @@ Carried forward from the audit, with the mitigation each plan actually implement
 | R7 | The re-anchor job corrupts user-created records | Only rows listed in `seed_anchor` are touched. Tested explicitly | 01 §7.2, 07 §6, 11 §3 |
 | R8 | Better Auth's schema conflicts with the hand-authored `staff` table | Kept separate and joined by `staff.user_id`. Better Auth owns its own tables | 02 §2.2 |
 | R9 | Scope grows during Phase 06 as screens reveal missing endpoints | The route checklist is fixed at 37. New endpoints are logged, not built inline | 06 §5 |
+| R10 | An uploaded file carries malware, since nothing scans it | Allowlist excludes executables and archives; magic-byte checking rejects renamed binaries; `attachment` on every download means nothing executes in the origin | 08 §3.4, D12 |
+| R11 | `error_log` fills with a repeating error and crowds the table | 90-day deletion in the nightly job; the writer is best-effort and never inside the failing transaction | 09 §4 |
 
 ### 5.1 The two that deserve attention
 
@@ -197,8 +266,8 @@ built.
 Worth stating, because a plan that sounds complete invites being treated as complete.
 
 - It is not a security certification. It implements the controls in `docs/SECURITY.md` §3 for
-  invented data. A deployment holding real patient records needs D1 revisited and everything in
-  §3 of this document reconsidered.
+  invented data. A deployment holding real patient records needs D1 revisited, D12's unscanned
+  uploads closed, and everything in §3 of this document reconsidered.
 - The effort estimates in the README are estimates. Phases 04 and 06 are the ones that overrun.
 - No phase has been executed. Every `Done when` list is a hypothesis about what will prove the
   work correct, and some of them will turn out to be the wrong checks.

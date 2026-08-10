@@ -114,7 +114,10 @@ Set in `proxy.ts` so they apply to every response including API routes.
 | `X-Frame-Options` | `DENY` — belt and braces beside `frame-ancestors` |
 | `Cross-Origin-Opener-Policy` | `same-origin` |
 
-Submit to the HSTS preload list only after the domain is settled. Preload is difficult to reverse.
+The header is sent, but **the preload list is not submitted**. D10 keeps the product on its Vercel
+domain, and `vercel.app` is already preloaded as a whole — a subdomain submission is neither
+possible nor useful. Submit only after moving to a custom domain, and only once it is settled;
+preload is difficult to reverse.
 
 ### 2.1 Cache headers on PII
 
@@ -173,14 +176,80 @@ denylist.
 
 ### 3.4 Uploads
 
-`/patients/[id]` lists documents. They are seed rows with no file behind them.
+`/patients/[id]` lists 8 seed documents with no file behind them. They become real. This is the
+one place in the product where a user-supplied byte stream enters, so it gets its own controls.
 
-Making uploads real needs: a type allowlist checked by content sniffing rather than by extension,
-a size cap, storage outside the web root, and serving through an authenticated endpoint rather
-than a public URL. Malware scanning has no free option worth trusting.
+**Storage: Vercel Blob, private access.** Not the filesystem — serverless functions have no
+durable one — and not a public bucket. Every object is written with `access: "private"` and is
+unreachable without going through the application.
 
-**Deferred.** The documents tab keeps listing metadata without file bodies until there is a reason
-to accept files. Recorded in [12-decisions-and-risks.md](12-decisions-and-risks.md).
+```sql
+ALTER TABLE patient_documents
+  ADD COLUMN blob_key      TEXT,          -- opaque, not derived from the filename
+  ADD COLUMN content_type  TEXT NOT NULL,
+  ADD COLUMN size_bytes    BIGINT NOT NULL,
+  ADD COLUMN checksum      TEXT NOT NULL, -- sha256, for duplicate detection and integrity
+  ADD COLUMN uploaded_by   UUID REFERENCES staff(id),
+  ADD COLUMN scan_status   TEXT NOT NULL DEFAULT 'unscanned';
+```
+
+`blob_key` is a generated identifier, never the original filename. A filename is user input and
+has no business appearing in a storage path.
+
+#### Upload
+
+```
+POST /api/v1/patients/{ref}/documents      multipart, authenticated
+```
+
+| Control | Rule |
+|---|---|
+| Authorisation | `Patients: edit` **and** the row-level scope for that patient |
+| Size | 10 MB hard cap, rejected at the boundary before the body is buffered |
+| Type allowlist | `application/pdf`, `image/png`, `image/jpeg`, `image/webp` |
+| Type checking | **Magic bytes, not the declared `Content-Type` and not the extension.** A client-declared type is a claim, not a fact |
+| Filename | Stored as a display label only, escaped on render. Never used in a path, a header, or a shell |
+| Rate | 20 uploads per actor per hour |
+| Audit | One `created` entry naming the document, its size, and its checksum |
+
+Rejections are 422 with a reason the user can act on — "PDF, PNG, JPEG, or WebP, up to 10 MB" —
+not a generic failure.
+
+#### Download
+
+```
+GET /api/v1/documents/{id}                 authenticated, streamed
+```
+
+Never a public blob URL. Never a long-lived signed URL — a signed URL that outlives the session is
+an unauthenticated copy of a patient document sitting in someone's browser history.
+
+```
+Content-Disposition: attachment; filename="…"    -- always attachment, never inline
+Content-Type: <the sniffed type, not the stored claim>
+X-Content-Type-Options: nosniff
+Cache-Control: no-store
+```
+
+`attachment` throughout. Rendering an uploaded file inline in the application's own origin makes
+any parser bug in the browser a same-origin problem. A download is worth the extra click.
+
+Every download writes an `exported` audit entry. A document is patient data leaving the system,
+which is the definition `docs/SECURITY.md` §2.3 already applies to exports.
+
+#### Malware scanning — an accepted gap
+
+There is no free scanning service worth trusting, and D7 rules out paid ones. The gap is real and
+is mitigated rather than closed:
+
+- The allowlist excludes every executable and archive format
+- Content sniffing means a renamed executable is rejected, not stored
+- `Content-Disposition: attachment` means nothing executes in the application's origin
+- `scan_status` defaults to `unscanned`, so the column exists for the day a scanner is added
+
+This is defensible for fictional records and **not** defensible for real patient documents.
+Recorded against D1 in [12-decisions-and-risks.md](12-decisions-and-risks.md) as one of the things
+that must change if real data ever arrives.
 
 ---
 
@@ -224,8 +293,11 @@ Table — stay pinned. Dependabot is configured to ignore their majors, or it wi
 pull request every week forever.
 
 New runtime dependencies from this work: `drizzle-orm`, `@neondatabase/serverless`, `better-auth`,
-`@node-rs/argon2`, `pg-boss`, `zod`. Six. Each earns its place in
+`@node-rs/argon2`, `pg-boss`, `zod`, `@vercel/blob`, and a magic-byte sniffer such as
+`file-type`. Eight. Each earns its place in
 [12-decisions-and-risks.md](12-decisions-and-risks.md).
+
+No error-reporting or analytics SDK, per D9. That is the one category deliberately left empty.
 
 ---
 
@@ -237,10 +309,10 @@ system two phases out of date is worse than none.
 
 Two specific claims become false:
 
-**§2.7 — "No runtime dependency reaches the network."** A database driver and, in live mode, a
-message provider both do. The revised claim is narrower and still worth making: no *browser*
-request leaves the origin, enforced by `connect-src 'self'`, and no analytics or session-replay
-SDK is installed.
+**§2.7 — "No runtime dependency reaches the network."** A database driver, blob storage, and — in
+live mode — a message provider all do. The revised claim is narrower and still true: no *browser*
+request leaves the origin, enforced by `connect-src 'self'`, and no analytics, session-replay, or
+error-reporting SDK is installed. D9 keeps that second half true on purpose.
 
 **§1 — "PII masking: built, presentational only."** After Phase 04 it is server-side and the full
 value is not in the bundle. That is the single largest change in the product's actual posture and
@@ -262,4 +334,9 @@ should be stated plainly.
 - [ ] `scripts/rotate-key.ts` re-encrypts every contact column and is tested on a Neon branch
 - [ ] `npm audit --audit-level=critical` runs in CI and fails the build
 - [ ] Dependabot ignores the three pinned majors
-- [ ] `docs/SECURITY.md` §1 and §2.7 rewritten to describe what now exists
+- [ ] An executable renamed to `.pdf` is rejected by magic-byte sniffing
+- [ ] A 12 MB file is rejected before the body is buffered
+- [ ] A document is unreachable by its blob URL without a session
+- [ ] Every download sends `Content-Disposition: attachment` and writes an `exported` audit entry
+- [ ] A filename containing `../` or a null byte is stored as a label and never touches a path
+- [ ] `docs/SECURITY.md` §1, §2.7, and §3.6 rewritten to describe what now exists

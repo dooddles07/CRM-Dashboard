@@ -14,7 +14,7 @@ three things that are enough.
 | Need | Mechanism |
 |---|---|
 | Request and error logs | Structured JSON to stdout, read in Vercel runtime logs |
-| Application errors | Sentry free tier, with scrubbing — see §4 |
+| Application errors | An `error_log` table in the product's own Postgres — see §4. No third-party tracker |
 | Security anomalies | Queries over `audit_log`, delivered as in-app notifications |
 | Liveness | `/api/health`, polled by the same GitHub Actions workflow that drains the queue |
 
@@ -73,7 +73,7 @@ An hourly job runs these and writes a `security` notification to Hospital Admins
 
 | Signal | Threshold |
 |---|---|
-| Reveals by one actor | > 30 in an hour |
+| Reveals by one actor | > 60 in an hour, or > 250 in a day |
 | Reveals against one patient by different actors | > 3 in a day |
 | Exports by one actor | > 5 in a day |
 | Failed sign-ins | > 20 in an hour, any account |
@@ -84,6 +84,9 @@ An hourly job runs these and writes a `security` notification to Hospital Admins
 
 The last one matters most. Every other signal assumes the audit log is being written. A silent
 audit log looks identical to a quiet day, and only an explicit check distinguishes them.
+
+Reveal thresholds sit deliberately below the hard limits in Phase 04 §5.1 — alert at 60 an hour,
+block at 100. A human hears about the pattern before the control interrupts anyone.
 
 Thresholds are configuration. They will be wrong at first; the first month is for tuning them
 down until the notifications are worth reading.
@@ -101,24 +104,49 @@ it — before campaigns.
 
 ## 4. Error tracking
 
-Sentry free tier, `@sentry/nextjs`, with three constraints:
+**No third-party error tracker.** Decided — see [12-decisions-and-risks.md](12-decisions-and-risks.md)
+D9.
 
-- `sendDefaultPii: false`
-- `beforeSend` runs the same key-dropping serialiser as §2.1
-- Source maps uploaded and not served publicly
+Sentry was considered and rejected. It would be the only component transmitting anything about the
+application to an outside service, and `docs/SECURITY.md` §2.7's claim that nothing phones home
+survives largely intact without it. The structured logs in §2 cover ordinary debugging.
 
-This is a genuine change to the product's posture. `docs/SECURITY.md` §2.7 currently states no
-analytics or error-reporting SDK is installed, and that nothing phones home. Adding Sentry makes
-both false and the document must be corrected in the same change — Phase 08 §6 already schedules
-that edit.
+The gap this leaves is real and must be covered rather than ignored: an unhandled exception in a
+Server Action is invisible once Vercel's log retention window passes. So errors are persisted to
+the one durable store the product already has.
 
-**This is optional.** The argument against: it is the only component that transmits anything about
-the application to a third party, and the structured logs in §2 cover most debugging needs. The
-argument for: an unhandled exception in a Server Action is otherwise invisible unless someone
-happens to be reading Vercel logs within the retention window.
+```sql
+CREATE TABLE error_log (
+  id          BIGSERIAL PRIMARY KEY,
+  reference   TEXT NOT NULL UNIQUE,      -- the same one shown in ErrorState
+  level       TEXT NOT NULL,             -- 'error' | 'fatal'
+  message     TEXT NOT NULL,
+  stack       TEXT,
+  route       TEXT,
+  actor_id    UUID REFERENCES staff(id),
+  request_id  TEXT,
+  context     JSONB,                     -- scrubbed by the §2.1 serialiser
+  occurred_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
-Decide before implementing rather than during. Recorded in
-[12-decisions-and-risks.md](12-decisions-and-risks.md) as an open decision, not a settled one.
+CREATE INDEX idx_error_recent ON error_log(occurred_at DESC);
+CREATE INDEX idx_error_reference ON error_log(reference);
+```
+
+Three rules:
+
+- The write is best-effort and never inside the failing transaction. An error logger that throws
+  while logging an error is worse than no logger.
+- `context` passes through the same key-dropping serialiser as §2.1. A stack trace containing a
+  decrypted phone number is exactly what this must not create.
+- Rows older than 90 days are deleted by the nightly job. This table is for debugging, not for
+  history — the audit log is the history.
+
+`/admin/security` gains a recent-errors panel beside the alerts panel, so a staff member quoting a
+reference from `ErrorState` can be answered without shell access.
+
+This costs one table and one insert path, and it removes the only outbound dependency the
+alternative would have introduced.
 
 ---
 
@@ -169,4 +197,10 @@ alerting channel that reaches a person.
 - [ ] `/api/health` reports a missing audit partition as a failure
 - [ ] `/api/health` reports a stalled queue
 - [ ] A failing health check opens a GitHub issue
-- [ ] The Sentry decision is recorded either way, and `docs/SECURITY.md` §2.7 matches reality
+- [ ] An unhandled Server Action exception writes an `error_log` row with a reference
+- [ ] The reference in `ErrorState` finds that row
+- [ ] A stack trace containing a decrypted value is scrubbed before it is stored
+- [ ] The error logger failing does not turn a 500 into a crash
+- [ ] `error_log` rows older than 90 days are deleted by the nightly job
+- [ ] No third-party SDK is installed; `docs/SECURITY.md` §2.7 needs only the database-driver
+      correction

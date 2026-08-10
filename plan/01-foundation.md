@@ -341,7 +341,37 @@ CREATE TABLE message_events (
 Status on `outbound_messages` is the latest event, denormalised for querying. `message_events` is
 the history, and it is what the campaign funnel counts.
 
-### 4.6 System
+### 4.6 Documents
+
+The documents tab on `/patients/[id]` becomes real files, per Phase 08 §3.4. The table carries
+metadata; the bytes live in Vercel Blob.
+
+```sql
+CREATE TABLE patient_documents (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  reference    TEXT UNIQUE NOT NULL,
+  patient_id   UUID NOT NULL REFERENCES patients(id),
+  label        TEXT NOT NULL,            -- the original filename, display only
+  category     TEXT NOT NULL,
+  blob_key     TEXT,                     -- generated, never derived from the filename
+  content_type TEXT NOT NULL,            -- the sniffed type, not the declared one
+  size_bytes   BIGINT NOT NULL,
+  checksum     TEXT NOT NULL,            -- sha256
+  scan_status  TEXT NOT NULL DEFAULT 'unscanned',
+  uploaded_by  UUID REFERENCES staff(id),
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  archived_at  TIMESTAMPTZ
+);
+```
+
+`blob_key` is nullable so the 8 seed documents can exist as metadata without invented file
+bodies. A row with a null `blob_key` renders in the list and returns 404 on download, which is
+honest about what it is.
+
+Deleting a document removes the blob and sets `archived_at`. The row and its audit trail outlive
+the file — the record that a document existed and was deleted is the part that matters.
+
+### 4.7 System
 
 ```sql
 CREATE TABLE notifications (
@@ -384,7 +414,7 @@ CREATE TABLE integrations (
 Notifications become per-staff rows rather than a global list. The current model has one array
 everyone shares, which cannot be right once there are real accounts.
 
-### 4.7 Analytics are views, not tables
+### 4.8 Analytics are views, not tables
 
 The eight KPIs, the chart series, and the department rollups on `/analytics`, `/reports`, and the
 Command Center are all derivable. Store none of them.
