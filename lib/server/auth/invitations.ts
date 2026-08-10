@@ -1,5 +1,5 @@
-import { and, eq, isNull } from "drizzle-orm";
-import { createBareUser, initialsFromName, upsertCredentialAccount } from "./credentials";
+import { and, eq, gt, isNull } from "drizzle-orm";
+import { createBareUser, hasCredentialAccount, initialsFromName, upsertCredentialAccount } from "./credentials";
 import { isKnownStaffRole } from "./roles";
 import { generateToken, hashToken } from "./tokens";
 import { db } from "@/lib/server/db";
@@ -36,10 +36,31 @@ export interface CreateInvitationResult {
  * validate `departmentId` beyond the table's own FK — an invalid id fails
  * loudly as a Postgres foreign-key violation, which is enough given Task 4
  * is expected to populate this from a real department picker, not free text.
+ *
+ * Fix round (code review, Critical finding): also refuses to issue an
+ * invitation for an email that already resolves to an active account —
+ * either a `user` with a `credential` account already attached, or a
+ * `staff` row whose `status` isn't `'invited'` (covers a staff row that
+ * was suspended before ever completing its own bootstrap, which wouldn't
+ * have a credential yet either). A legitimate "I forgot my password" case
+ * has its own flow (`requestPasswordReset`/`consumePasswordReset`); a
+ * fresh invitation has no legitimate purpose against an email that's
+ * already onboarded, and closing this off at creation time is
+ * defense-in-depth alongside the same check `acceptInvitation` now makes
+ * before it will touch an existing user's credential.
  */
 export async function createInvitation(params: CreateInvitationParams): Promise<CreateInvitationResult> {
   if (!isKnownStaffRole(params.role)) {
     throw new Error(`createInvitation: unknown role "${params.role}"`);
+  }
+
+  const [existingUser] = await db.select({ id: user.id }).from(user).where(eq(user.email, params.email)).limit(1);
+  if (existingUser) {
+    const [existingStaff] = await db.select({ status: staff.status }).from(staff).where(eq(staff.userId, existingUser.id)).limit(1);
+    const alreadyOnboarded = (await hasCredentialAccount(db, existingUser.id)) || (existingStaff !== undefined && existingStaff.status !== "invited");
+    if (alreadyOnboarded) {
+      throw new Error(`createInvitation: ${params.email} already has an active account and cannot be re-invited`);
+    }
   }
 
   const { token, tokenHash } = generateToken();
@@ -83,6 +104,9 @@ export type AcceptInvitationResult =
 
 /** Thrown to roll back `acceptInvitation`'s transaction when a concurrent request already claimed the invitation between the pre-transaction check and this transaction's own update — see the comment at its throw site. */
 class InvitationRaceError extends Error {}
+
+/** Thrown to roll back `acceptInvitation`'s transaction when the invitation's email already resolves to an active, credentialed (or non-'invited') account — see `hasCredentialAccount`'s header comment in ./credentials.ts. */
+class InvitationTakeoverError extends Error {}
 
 /**
  * task-3-brief.md §2, "Accept an invitation." Identical-shaped rejection
@@ -151,7 +175,17 @@ export async function acceptInvitation(params: {
       const [claimed] = await tx
         .update(invitations)
         .set({ acceptedAt: new Date() })
-        .where(and(eq(invitations.id, invitation.id), isNull(invitations.acceptedAt), isNull(invitations.revokedAt)))
+        .where(
+          and(
+            eq(invitations.id, invitation.id),
+            isNull(invitations.acceptedAt),
+            isNull(invitations.revokedAt),
+            // Minor fix-round item: re-check expiry inside the claim too —
+            // the pre-transaction read above can't catch a token expiring
+            // in the narrow window between that read and this UPDATE.
+            gt(invitations.expiresAt, new Date()),
+          ),
+        )
         .returning({ id: invitations.id });
       if (!claimed) {
         throw new InvitationRaceError();
@@ -165,17 +199,40 @@ export async function acceptInvitation(params: {
       } else {
         ({ userId } = await createBareUser(tx, { email: invitation.email, name: params.name }));
       }
-      await upsertCredentialAccount(tx, { userId, password: params.password });
 
       const [existingStaff] = await tx.select().from(staff).where(eq(staff.userId, userId)).limit(1);
 
+      if (existingUser) {
+        // Critical fix-round finding: a user created moments ago by
+        // `createBareUser` above cannot yet have a credential or a
+        // non-'invited' staff row, so this guard only applies to a
+        // *pre-existing* user — exactly the provisioning-bootstrap case
+        // this function is meant to also handle (task-3-brief.md §1) vs.
+        // an already-onboarded account this invitation has no business
+        // touching. Without it, a fresh invitation issued (by mistake or
+        // by a malicious insider with invite access) against an
+        // already-active email would let anyone holding that token
+        // silently overwrite that account's password.
+        const alreadyCredentialed = await hasCredentialAccount(tx, userId);
+        const staffNotPending = existingStaff !== undefined && existingStaff.status !== "invited";
+        if (alreadyCredentialed || staffNotPending) {
+          throw new InvitationTakeoverError();
+        }
+      }
+
+      await upsertCredentialAccount(tx, { userId, password: params.password });
+
       let staffId: string;
       let actorName: string;
+      let auditAction: "created" | "updated";
+      let auditField: string | null;
       if (existingStaff) {
         // Provisioning-bootstrap path (task-3-brief.md §1): role/department
         // were already correct when `scripts/provision.ts` created this row.
         staffId = existingStaff.id;
         actorName = existingStaff.name;
+        auditAction = "updated";
+        auditField = "status";
         await tx.update(staff).set({ status: "active", updatedAt: new Date() }).where(eq(staff.id, existingStaff.id));
       } else {
         const reference = await generateReference("staff", async (candidate) => {
@@ -199,14 +256,17 @@ export async function acceptInvitation(params: {
           .returning({ id: staff.id });
         staffId = createdStaff!.id;
         actorName = params.name;
+        auditAction = "created";
+        auditField = null;
       }
 
       await tx.insert(auditLog).values({
         actorId: staffId,
         actorName,
-        action: "created",
+        action: auditAction,
         resourceType: "staff",
         resourceId: staffId,
+        field: auditField,
       });
 
       return { userId, staffId };
@@ -216,6 +276,10 @@ export async function acceptInvitation(params: {
   } catch (err) {
     if (err instanceof InvitationRaceError) {
       console.debug(`acceptInvitation: invitation ${invitation.id} was claimed by a concurrent request`);
+      return { ok: false };
+    }
+    if (err instanceof InvitationTakeoverError) {
+      console.debug(`acceptInvitation: invitation ${invitation.id}'s email already has an active account`);
       return { ok: false };
     }
     throw err;

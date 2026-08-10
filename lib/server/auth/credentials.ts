@@ -94,6 +94,27 @@ export async function upsertCredentialAccount(
 }
 
 /**
+ * Fix round (code review, Critical finding): whether `userId` already has a
+ * `credential` account — the signal `acceptInvitation` (./invitations.ts)
+ * and `createInvitation` need to tell "a bare, provisioning-bootstrap user
+ * with no password yet" apart from "a real, already-onboarded account".
+ * Without this check, re-inviting an already-active email let the
+ * invitation-accept flow silently overwrite that account's password —
+ * `upsertCredentialAccount` above updates in place whenever an `account`
+ * row already exists, which is exactly the right behaviour for the
+ * provisioning-bootstrap case and exactly the wrong behaviour for anyone
+ * else.
+ */
+export async function hasCredentialAccount(tx: Queryable, userId: string): Promise<boolean> {
+  const [existing] = await tx
+    .select({ id: account.id })
+    .from(account)
+    .where(and(eq(account.userId, userId), eq(account.providerId, "credential")))
+    .limit(1);
+  return !!existing;
+}
+
+/**
  * `staff.initials` has no derivation helper elsewhere — `scripts/seed.ts`
  * takes it straight from fixture data, which doesn't exist for a
  * provisioned or invited account. First letter of up to the first two

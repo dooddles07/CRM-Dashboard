@@ -9,7 +9,7 @@ import {
   timestamp,
   uuid,
 } from "drizzle-orm/pg-core";
-import { inet } from "./columns";
+import { bytea, inet } from "./columns";
 import { departments } from "./org";
 import { staff } from "./people";
 
@@ -135,21 +135,31 @@ export const authAttempts = pgTable(
  * than creating a `staff_role` enum, so this column tracks that decision
  * instead of the plan's literal SQL. The token itself is never stored,
  * only its hash; a plaintext token exists solely in the emailed link.
+ *
+ * `idx_invitations_token_hash` added in Task 3's fix round (Minor finding)
+ * for consistency with the structurally identical
+ * `password_reset_tokens.token_hash` index below, which had one from the
+ * start — both are looked up by `WHERE token_hash = ?` on every
+ * accept/consume call.
  */
-export const invitations = pgTable("invitations", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  email: text("email").notNull(),
-  role: text("role").notNull(),
-  departmentId: uuid("department_id").references(() => departments.id),
-  tokenHash: text("token_hash").notNull(),
-  invitedBy: uuid("invited_by")
-    .notNull()
-    .references(() => staff.id),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  acceptedAt: timestamp("accepted_at", { withTimezone: true }),
-  revokedAt: timestamp("revoked_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const invitations = pgTable(
+  "invitations",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    email: text("email").notNull(),
+    role: text("role").notNull(),
+    departmentId: uuid("department_id").references(() => departments.id),
+    tokenHash: text("token_hash").notNull(),
+    invitedBy: uuid("invited_by")
+      .notNull()
+      .references(() => staff.id),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("idx_invitations_token_hash").on(table.tokenHash)],
+);
 
 /**
  * plan/02-authentication.md §7. The plan doesn't show explicit SQL for this
@@ -179,3 +189,28 @@ export const passwordResetTokens = pgTable(
   },
   (table) => [index("idx_password_reset_tokens_hash").on(table.tokenHash)],
 );
+
+/**
+ * Task 3 fix round (code review, Important finding). `requestPasswordReset`
+ * (lib/server/auth/password-reset.ts) must cost about the same wall-clock
+ * time whether the submitted email resolves to a real user or not — plan
+ * §7's "the response is identical" extends to timing, the same concern
+ * plan §5 / Task 2's lockout closed for login with a cost-matched dummy
+ * argon2 hash. Matching the *number* of DB round trips (what the first
+ * version of this function did) isn't enough: the real found-path does a
+ * `pgp_sym_encrypt` call plus two real `INSERT`s (WAL-writing cost); two
+ * plain indexed `SELECT`s are cheaper than that on both counts. This table
+ * exists purely so the not-found path can perform two real, equally-costly
+ * `INSERT`s of its own — no FK, so no real user/email needs to exist for
+ * it to accept a row (unlike `password_reset_tokens`, whose `user_id` FK
+ * makes a discardable insert impossible for an email that doesn't resolve
+ * to anyone). Rows here carry no meaning and are never read back; treat
+ * this the same way `auth_attempts` documents itself ("grows fast under
+ * attack, nothing needs it long") — Phase 07's nightly job should prune it
+ * on the same schedule.
+ */
+export const authTimingPadding = pgTable("auth_timing_padding", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  data: bytea("data"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});

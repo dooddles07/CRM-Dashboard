@@ -1,11 +1,12 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, gt, isNull } from "drizzle-orm";
 import { upsertCredentialAccount } from "./credentials";
 import { generateToken, hashToken } from "./tokens";
 import { db } from "@/lib/server/db";
 import { auditLog } from "@/lib/server/db/audit-log";
-import { passwordResetTokens, session as sessionTable, user } from "@/lib/server/db/schema/auth";
+import { authTimingPadding, passwordResetTokens, session as sessionTable, user } from "@/lib/server/db/schema/auth";
 import { staff } from "@/lib/server/db/schema/people";
 import { appBaseUrl, deliverSandboxLink } from "@/lib/server/comms/sandbox";
+import { encryptPiiRequired } from "@/lib/server/db/pii";
 
 /**
  * plan/02-authentication.md §7. This deliberately does not route through
@@ -34,19 +35,27 @@ const RESET_TTL_MS = 60 * 60 * 1000; // plan §7: "1 hour expiry"
  *
  * Timing: the found-user path does 2 awaited DB round trips after the
  * initial lookup (insert token, insert outbound message — 3 total
- * including the lookup). The not-found path performs the same *number* of
- * round trips against a real table (two dummy `SELECT`s) rather than
- * returning immediately after the lookup, so wall-clock time doesn't
- * reveal which branch ran — the same timing-oracle concern Task 2's lockout
- * closed for login (plan §5: "Compare against a dummy hash when no user is
- * found"), and the same shape Better Auth's own `/forgot-password`
- * endpoint uses for exactly this reason (its `requestPasswordReset`
- * handler runs `generateId(24)` plus a dummy
- * `internalAdapter.findVerificationValue()` call when the email doesn't
- * resolve — node_modules/better-auth/dist/api/routes/password.mjs). This
- * is a best-effort mitigation, not a cryptographic guarantee — same
+ * including the lookup) — one of those two is a real `pgp_sym_encrypt`
+ * call (via `deliverSandboxLink`'s `encryptPiiRequired`) plus WAL-writing
+ * `INSERT` cost, not just a round trip. The not-found path (`dummyResetWork`)
+ * is cost-matched, not just count-matched (fix round, Important finding):
+ * it performs the same *shape* of work — one `pgp_sym_encrypt` call and two
+ * real `INSERT`s, into `authTimingPadding`
+ * (lib/server/db/schema/auth.ts — see that table's header comment for why
+ * a dedicated no-FK scratch table exists rather than reusing
+ * `password_reset_tokens`, whose `user_id` FK can't accept a row for an
+ * email that doesn't resolve to anyone) — rather than the cheaper pair of
+ * plain indexed `SELECT`s an earlier version of this function used. This is
+ * the same timing-oracle concern Task 2's lockout closed for login (plan
+ * §5: "Compare against a dummy hash when no user is found"), and the same
+ * shape Better Auth's own `/forgot-password` endpoint uses for exactly this
+ * reason (its `requestPasswordReset` handler runs `generateId(24)` plus a
+ * dummy `internalAdapter.findVerificationValue()` call when the email
+ * doesn't resolve — node_modules/better-auth/dist/api/routes/password.mjs).
+ * Still a best-effort mitigation, not a cryptographic guarantee — same
  * caveat lib/server/auth/lockout.ts documents for its own timing-adjacent
- * de-duplication logic.
+ * de-duplication logic; Postgres query-planner/IO variance across two
+ * different tables is not bounded by this code.
  */
 export async function requestPasswordReset(email: string): Promise<void> {
   const [existingUser] = await db.select({ id: user.id }).from(user).where(eq(user.email, email)).limit(1);
@@ -74,9 +83,13 @@ export async function requestPasswordReset(email: string): Promise<void> {
 }
 
 async function dummyResetWork(): Promise<void> {
-  const { tokenHash } = generateToken();
-  await db.select({ id: passwordResetTokens.id }).from(passwordResetTokens).where(eq(passwordResetTokens.tokenHash, tokenHash)).limit(1);
-  await db.select({ id: passwordResetTokens.id }).from(passwordResetTokens).where(eq(passwordResetTokens.tokenHash, tokenHash)).limit(1);
+  // Cost-matched against the found-path's real work: one pgp_sym_encrypt
+  // call (folded into the first insert's `data` column so it actually
+  // runs, rather than being computed and discarded without ever reaching
+  // Postgres) plus two real INSERTs. See this file's header comment and
+  // `authTimingPadding`'s own comment (lib/server/db/schema/auth.ts).
+  await db.insert(authTimingPadding).values({ data: encryptPiiRequired("timing-parity@example.invalid") });
+  await db.insert(authTimingPadding).values({});
 }
 
 export type ConsumePasswordResetResult = { ok: true } | { ok: false };
@@ -121,7 +134,15 @@ export async function consumePasswordReset(params: { token: string; newPassword:
       const [claimed] = await tx
         .update(passwordResetTokens)
         .set({ usedAt: new Date() })
-        .where(and(eq(passwordResetTokens.id, row.id), isNull(passwordResetTokens.usedAt)))
+        .where(
+          and(
+            eq(passwordResetTokens.id, row.id),
+            isNull(passwordResetTokens.usedAt),
+            // Minor fix-round item: re-check expiry inside the claim too —
+            // mirrors ./invitations.ts's `acceptInvitation` claim UPDATE.
+            gt(passwordResetTokens.expiresAt, new Date()),
+          ),
+        )
         .returning({ id: passwordResetTokens.id });
       if (!claimed) {
         throw new ResetRaceError();
