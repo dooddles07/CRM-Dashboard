@@ -19,3 +19,4 @@ yarn-error.log*
 /.vercel
 /playwright-report
 /test-results
+.vercel

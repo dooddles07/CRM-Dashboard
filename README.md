@@ -5,6 +5,9 @@
 **A hospital patient-relationship dashboard.**
 37 screens covering patients, scheduling, pipeline, engagement, and administration.
 
+[**View the live demo →**](https://crm-dashboard-beta-ebon.vercel.app)
+
+[![Live demo](https://img.shields.io/badge/demo-live-12a163?logo=vercel&logoColor=white)](https://crm-dashboard-beta-ebon.vercel.app)
 [![Next.js](https://img.shields.io/badge/Next.js-16.3-000?logo=next.js)](https://nextjs.org)
 [![React](https://img.shields.io/badge/React-19.2-087ea4?logo=react&logoColor=white)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
@@ -12,7 +15,7 @@
 
 </div>
 
-![CareFlow Command Center](docs/screenshots/dashboard.png)
+[![CareFlow Command Center](docs/screenshots/dashboard.png)](https://crm-dashboard-beta-ebon.vercel.app)
 
 ---
 

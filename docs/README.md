@@ -3,6 +3,8 @@
 Hospital patient-relationship dashboard for St. Aurora Medical Center, a fictional 320-bed
 hospital in Quezon City. Built with Next.js 16, React 19, and Tailwind v4.
 
+**Live demo:** [crm-dashboard-beta-ebon.vercel.app](https://crm-dashboard-beta-ebon.vercel.app)
+
 Every record in this repository is fictional demonstration data. No real patient information
 exists here.
 
