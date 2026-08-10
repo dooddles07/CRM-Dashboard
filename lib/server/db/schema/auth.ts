@@ -150,3 +150,32 @@ export const invitations = pgTable("invitations", {
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * plan/02-authentication.md §7. The plan doesn't show explicit SQL for this
+ * one the way it did for `invitations`/`auth_attempts` — task-3-brief.md
+ * §4 asks to check for something reusable first; nothing else in
+ * lib/server/db/schema fits (`verification`, above, is Better Auth's own
+ * table and this flow deliberately doesn't route through Better Auth's
+ * built-in reset-password endpoints, see lib/server/auth/password-reset.ts's
+ * header comment), so this is a new table, shaped like `invitations`
+ * deliberately: same token/hash/expiry convention (a plaintext token lives
+ * only in the emailed/console link, never at rest), `usedAt` playing
+ * `invitations.acceptedAt`'s role as the single-use marker. 1 hour expiry
+ * (plan §7) is enforced by the caller, not a DB constraint, matching how
+ * `invitations.expiresAt` (72h) is checked too.
+ */
+export const passwordResetTokens = pgTable(
+  "password_reset_tokens",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("idx_password_reset_tokens_hash").on(table.tokenHash)],
+);

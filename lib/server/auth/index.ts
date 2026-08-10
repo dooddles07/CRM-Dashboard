@@ -19,8 +19,15 @@ import * as schema from "@/lib/server/db/schema";
  * §2.1 says to measure hash latency there and lower `memoryCost` (never
  * change algorithm) if a login exceeds ~500ms. No deployed function exists
  * in this workspace to measure against; do that check in Phase 10.
+ *
+ * Exported (Task 3): `lib/server/auth/credentials.ts` reuses this exact
+ * constant to hash provisioning/invitation/reset passwords with
+ * `@node-rs/argon2`'s `hash()` directly, the same way this file's own
+ * `emailAndPassword.password.hash` does — rather than reaching through
+ * `auth.options.emailAndPassword.password.hash`, which is the same function
+ * but typed as `unknown`-ish through Better Auth's generic options shape.
  */
-const ARGON2_PARAMS = {
+export const ARGON2_PARAMS = {
   algorithm: 2, // argon2id
   memoryCost: 19456, // 19 MiB — OWASP minimum
   timeCost: 2,
