@@ -1,0 +1,165 @@
+/**
+ * Reads the closed string unions in lib/types.ts and emits
+ * lib/server/db/schema/enums.ts as pgEnum() declarations.
+ *
+ * Run with `npm run gen:enums`. Run with `--check` in CI: exits 1 if the
+ * committed file would change, without writing it (same shape as a
+ * formatter check).
+ *
+ * Only unions listed in NAMED_UNIONS / INLINE_UNIONS below become Postgres
+ * enums. Free-text categorical fields (gender, appointment type, task
+ * category, department id, staff role, ...) stay TEXT by deliberate choice
+ * documented in plan/01-foundation.md — adding a name here is what turns a
+ * TEXT column into an enum, so add deliberately.
+ */
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+const TYPES_PATH = join(__dirname, "..", "lib", "types.ts");
+const OUT_PATH = join(__dirname, "..", "lib", "server", "db", "schema", "enums.ts");
+
+// export type <Name> = "a" | "b" | ...
+const NAMED_UNIONS: { tsName: string; pgName: string }[] = [
+  { tsName: "PatientStatus", pgName: "patient_status" },
+  { tsName: "AppointmentStatus", pgName: "appointment_status" },
+  { tsName: "DoctorStatus", pgName: "doctor_status" },
+  { tsName: "LeadStage", pgName: "lead_stage" },
+  { tsName: "ReferralStatus", pgName: "referral_status" },
+  { tsName: "FollowUpStatus", pgName: "follow_up_status" },
+  { tsName: "TaskStatus", pgName: "task_status" },
+  { tsName: "CaseStatus", pgName: "case_status" },
+  { tsName: "Priority", pgName: "priority" },
+  { tsName: "Channel", pgName: "channel" },
+  { tsName: "AuditAction", pgName: "audit_action" },
+  { tsName: "NotificationCategory", pgName: "notification_category" },
+  { tsName: "Tone", pgName: "tone" },
+  { tsName: "WorkflowNodeKind", pgName: "workflow_node_kind" },
+];
+
+// Unions written inline on an interface field rather than as a standalone
+// `export type`. Same extraction, different anchor.
+const INLINE_UNIONS: { interfaceName: string; field: string; pgName: string }[] = [
+  { interfaceName: "Campaign", field: "status", pgName: "campaign_status" },
+  { interfaceName: "Integration", field: "status", pgName: "integration_status" },
+  { interfaceName: "StaffMember", field: "status", pgName: "staff_status" },
+  { interfaceName: "Feedback", field: "status", pgName: "feedback_status" },
+  { interfaceName: "WorkflowSummary", field: "status", pgName: "workflow_status" },
+];
+
+// Have no TS union source — introduced by the schema itself for the
+// messaging pipeline (plan/01-foundation.md §4.5, §4.4). Hand-listed, not
+// generated, but kept in this file so every enum lives in one place.
+const HAND_AUTHORED: { pgName: string; values: string[] }[] = [
+  {
+    pgName: "message_direction",
+    values: ["inbound", "outbound"],
+  },
+  {
+    pgName: "delivery_status",
+    values: ["queued", "sent", "delivered", "opened", "clicked", "bounced", "failed"],
+  },
+  {
+    pgName: "delivery_event",
+    values: ["queued", "sent", "delivered", "opened", "clicked", "bounced", "failed"],
+  },
+];
+
+function extractLiterals(unionBody: string): string[] {
+  const matches = unionBody.match(/"([^"]+)"/g) ?? [];
+  return matches.map((m) => m.slice(1, -1));
+}
+
+/** TS unions use kebab-case; Postgres enum members use snake_case. */
+function toSnake(value: string): string {
+  return value.replace(/-/g, "_");
+}
+
+function toCamel(pgName: string): string {
+  return pgName.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+}
+
+function readNamedUnion(source: string, tsName: string): string[] {
+  const re = new RegExp(`export type ${tsName} =([\\s\\S]*?);`);
+  const match = source.match(re);
+  if (!match) {
+    throw new Error(`gen-enums: could not find "export type ${tsName}" in lib/types.ts`);
+  }
+  return extractLiterals(match[1]);
+}
+
+function readInlineUnion(source: string, interfaceName: string, field: string): string[] {
+  const blockRe = new RegExp(`interface ${interfaceName} \\{([\\s\\S]*?)\\n\\}`);
+  const block = source.match(blockRe);
+  if (!block) {
+    throw new Error(`gen-enums: could not find "interface ${interfaceName}" in lib/types.ts`);
+  }
+  const fieldRe = new RegExp(`\\b${field}:\\s*([^;]+);`);
+  const fieldMatch = block[1].match(fieldRe);
+  if (!fieldMatch) {
+    throw new Error(
+      `gen-enums: could not find field "${field}" on interface "${interfaceName}" in lib/types.ts`,
+    );
+  }
+  return extractLiterals(fieldMatch[1]);
+}
+
+function render(): string {
+  const source = readFileSync(TYPES_PATH, "utf8");
+
+  const entries: { pgName: string; values: string[] }[] = [];
+
+  for (const { tsName, pgName } of NAMED_UNIONS) {
+    entries.push({ pgName, values: readNamedUnion(source, tsName).map(toSnake) });
+  }
+  for (const { interfaceName, field, pgName } of INLINE_UNIONS) {
+    entries.push({ pgName, values: readInlineUnion(source, interfaceName, field).map(toSnake) });
+  }
+  for (const entry of HAND_AUTHORED) {
+    entries.push(entry);
+  }
+
+  const lines: string[] = [
+    "// generated by scripts/gen-enums.ts — do not edit",
+    "//",
+    "// Sourced from the closed string unions in lib/types.ts. Re-run",
+    "// `npm run gen:enums` after changing a union covered here; CI fails the",
+    "// build if this file drifts from what that run would produce.",
+    "",
+    'import { pgEnum } from "drizzle-orm/pg-core";',
+    "",
+  ];
+
+  for (const { pgName, values } of entries) {
+    const varName = toCamel(pgName);
+    const valueList = values.map((v) => `"${v}"`).join(", ");
+    lines.push(`export const ${varName} = pgEnum("${pgName}", [${valueList}]);`);
+  }
+
+  lines.push("");
+  return lines.join("\n");
+}
+
+function main() {
+  const check = process.argv.includes("--check");
+  const output = render();
+
+  if (check) {
+    let current = "";
+    try {
+      current = readFileSync(OUT_PATH, "utf8");
+    } catch {
+      // File does not exist yet — treated as drift.
+    }
+    if (current !== output) {
+      console.error(`gen-enums --check: ${OUT_PATH} is out of date. Run "npm run gen:enums".`);
+      process.exit(1);
+    }
+    console.log("gen-enums --check: up to date.");
+    return;
+  }
+
+  writeFileSync(OUT_PATH, output, "utf8");
+  console.log(`gen-enums: wrote ${OUT_PATH}`);
+}
+
+main();

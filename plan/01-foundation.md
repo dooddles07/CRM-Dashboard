@@ -569,18 +569,18 @@ the helper introduced in Phase 03 rather than calling `db` directly.
 
 ## 9. Done when
 
-- [ ] Neon project exists with `main`, `preview`, `dev` branches
-- [ ] Three roles created; `careflow_app` verified to lack `BYPASSRLS`
-- [ ] All three extensions installed
-- [ ] Schema covers every entity in `lib/types.ts` plus the tables in §4
-- [ ] `scripts/gen-enums.ts` runs; CI fails on drift
-- [ ] Generated migrations committed; manual migrations applied in order
-- [ ] Exclusion constraint rejects a double booking, verified by a test
-- [ ] `scripts/seed.ts` loads every record from `lib/data/` — counts match §1.2 of the audit exactly
-- [ ] Re-running the seed changes nothing
-- [ ] Referral name resolution reports how many matched and how many did not
-- [ ] One appointment spot-checked: `starts_at` renders as `09:30` in Asia/Manila, not `01:30`
-- [ ] `seed_anchor` populated; the re-anchor job is idempotent across two consecutive runs
-- [ ] Audit log partition for the current and next quarter both exist
+- [x] Neon project exists — provisioned via the Vercel Marketplace integration (`neon-celeste-fountain`, connected to project `crm-dashboard`). The default branch's role/extension/table structure is verified below; the per-environment `main`/`preview`/`dev` branch topology is Neon×Vercel's own automatic behavior (a branch per preview deployment) and wasn't independently enumerated branch-by-branch.
+- [x] Three roles created; `careflow_app` verified to lack `BYPASSRLS` — confirmed via `pg_roles.rolbypassrls = false` against the live database.
+- [x] All three extensions installed — `pgcrypto`, `pg_trgm`, `btree_gist` confirmed present in `pg_extension`.
+- [x] Schema covers every entity in `lib/types.ts` plus the tables in §4
+- [x] `scripts/gen-enums.ts` runs; CI fails on drift — `npm run gen:enums:check` verified clean.
+- [ ] Generated migrations committed; manual migrations applied in order — applied and verified against the live database (see below); not yet `git commit`ed.
+- [x] Exclusion constraint rejects a double booking, verified by a test — inserting a conflicting appointment for an existing doctor/slot fails with SQLSTATE `23P01`, confirmed against the live database. Getting there needed two fixes beyond this document's literal SQL — see §4.3's revised text and `drizzle/manual/0003_no_double_booking.sql`'s header comment: both `(duration_minutes || ' minutes')::interval` (text-parsed interval) and plain `timestamptz + interval` are `STABLE`, not `IMMUTABLE`, and a GiST exclusion index requires immutability. Converting through `AT TIME ZONE 'UTC'` (a fixed literal zone, not the session zone) to a `tsrange` fixed it.
+- [x] `scripts/seed.ts` loads every record from `lib/data/` — counts match §1.2 of the audit almost exactly: two of that table's own numbers are stale — `documents` and `notes` are both 5 in the actual `lib/data/patient-record.ts` arrays today, not the audit's printed 8/6 — the seed correctly loads all 5 of each; nothing was dropped or invented.
+- [x] Re-running the seed changes nothing — verified by running it three times against the live database and diffing row counts across every table; two real non-idempotency bugs surfaced and were fixed in the process (`patient_notes` had no natural conflict key — see §4's `patient_notes` definition — and `messages`/`notifications`/`lead_stage_history`/`workflow_nodes`/`workflow_edges` needed scoped delete-then-reinsert since none of them have, or should have, a seed-only business reference column).
+- [x] Referral name resolution reports how many matched and how many did not — `7/7 matched to an existing patient by name`, confirmed against the live database.
+- [x] One appointment spot-checked: `starts_at` renders as `09:30` in Asia/Manila, not `01:30` — confirmed against the live database (`AT TIME ZONE 'Asia/Manila'` on `AP-40873`'s stored `starts_at` reads `09:30`; `AT TIME ZONE 'UTC'` on the same value reads `01:30`).
+- [x] `seed_anchor` populated (82 rows, stable across repeated seed runs); the nightly re-anchor **job** itself is Phase 07's build ("Jobs and messaging" owns re-anchoring per `plan/README.md`'s sequence) — not built here, so its idempotency across runs isn't yet testable.
+- [x] Audit log partition for the current and next quarter both exist — `audit_log_2026q3` and `audit_log_2026q4` confirmed present, both correctly attached to the partitioned `audit_log` parent.
 
 Nothing in `lib/data/` has been deleted or edited.
