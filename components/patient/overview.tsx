@@ -29,10 +29,25 @@ import { Protected } from "@/components/healthcare/protected";
 import { EmptyState } from "@/components/data/states";
 import { cn } from "@/lib/utils";
 
-export function PatientOverview({ patient }: { patient: Patient }) {
+interface PatientOverviewProps {
+  patient: Patient;
+  /**
+   * ISO date used as "today" for the upcoming-appointment cutoff.
+   * plan/01-foundation.md §7.3: audit finding 3.1 flagged the previous
+   * inline `new Date()` call here as both a correctness bug (compared
+   * against the frozen demo clock, so it only looked right on the day it
+   * was authored) and a hydration hazard on this force-dynamic segment.
+   * Defaults to the real wall clock so today's behaviour is unchanged;
+   * once Phase 06 splits this page into a server shell, the server passes
+   * request time explicitly instead of relying on the default.
+   */
+  today?: string;
+}
+
+export function PatientOverview({ patient, today = new Date().toISOString().slice(0, 10) }: PatientOverviewProps) {
   const appointments = appointmentsFor(patient.id);
   const upcoming = appointments
-    .filter((a) => a.date >= new Date().toISOString().slice(0, 10) || a.status === "confirmed")
+    .filter((a) => a.date >= today || a.status === "confirmed")
     .filter((a) => ["confirmed", "pending", "requested"].includes(a.status))
     .sort((a, b) => a.date.localeCompare(b.date))[0];
   const lastVisit = appointments.find((a) => a.status === "completed");

@@ -1,5 +1,3 @@
-import { TODAY } from "./data/constants";
-
 const DOT = "•";
 
 export type ProtectedKind = "phone" | "email" | "address" | "dob" | "id" | "text";
@@ -71,16 +69,24 @@ export function formatDayName(iso: string): string {
   return DAYS[parse(iso).getDay()];
 }
 
-/** Days between an ISO date and the demo clock. Negative is in the past. */
-export function daysFromToday(iso: string): number {
+/**
+ * Days between an ISO date and `reference`. Negative is in the past.
+ *
+ * plan/01-foundation.md §7.3: this used to compare against the frozen demo
+ * clock (TODAY), which only looked right by coincidence on the day it was
+ * authored. `reference` now defaults to the real wall clock instead — once
+ * Phase 06 splits pages into a server shell, the server passes request time
+ * explicitly here rather than relying on the default.
+ */
+export function daysFromToday(iso: string, reference: string = new Date().toISOString()): number {
   const a = parse(iso.slice(0, 10)).getTime();
-  const b = parse(TODAY).getTime();
+  const b = parse(reference.slice(0, 10)).getTime();
   return Math.round((a - b) / 86_400_000);
 }
 
 /** "Today", "Yesterday", "In 3 days", "9 days ago" */
-export function relativeDay(iso: string): string {
-  const diff = daysFromToday(iso);
+export function relativeDay(iso: string, reference?: string): string {
+  const diff = daysFromToday(iso, reference);
   if (diff === 0) return "Today";
   if (diff === 1) return "Tomorrow";
   if (diff === -1) return "Yesterday";
@@ -89,8 +95,8 @@ export function relativeDay(iso: string): string {
 }
 
 /** Compact relative timestamp for feeds: "2h ago", "Yesterday 16:04" */
-export function relativeTime(iso: string): string {
-  const diff = daysFromToday(iso);
+export function relativeTime(iso: string, reference?: string): string {
+  const diff = daysFromToday(iso, reference);
   if (diff === 0) return formatTime(iso);
   if (diff === -1) return `Yesterday ${formatTime(iso)}`;
   return `${formatDateShort(iso)} ${formatTime(iso)}`;

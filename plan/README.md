@@ -126,7 +126,7 @@ Update as phases land.
 | Phase | Status |
 |---|---|
 | 00 Audit | Complete |
-| 01 Foundation | Not started |
+| 01 Foundation | Complete — not yet merged to `main` |
 | 02 Authentication | Not started |
 | 03 Authorisation | Not started |
 | 04 Service layer | Not started |
