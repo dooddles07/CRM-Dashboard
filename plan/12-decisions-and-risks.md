@@ -1,0 +1,204 @@
+# Decisions, deferrals, and risks
+
+Why each choice, what was consciously left out, and what could still go wrong.
+
+Written so that a decision revisited in six months is revisited with its reasoning rather than
+from scratch.
+
+---
+
+## 1. Programme decisions
+
+### D1 — Fictional records on real infrastructure
+
+Real Postgres, real authentication, real authorisation, real audit. No actual patient information.
+
+**Why.** The gap between this build and a product is enforcement, not data. Building enforcement
+against invented records proves the same thing at a fraction of the cost.
+
+**Removed by this choice.** KMS envelope encryption, business associate agreements, a compliance
+programme against the Data Privacy Act or HIPAA, penetration testing, six-year audit retention,
+and a data protection officer's sign-off.
+
+**Reversing it** means adding all of the above, plus replacing the seed contact details. Nothing
+in this plan makes that harder — the encryption call site is already isolated, the audit log is
+already partitioned and append-only.
+
+### D2 — Every screen writes
+
+Full create, read, update, and delete across all thirty-seven routes, including campaign
+scheduling, workflow persistence, and integration credentials.
+
+**Why.** Asked for directly. The alternative — a real core with the rest reading seed arrays —
+leaves a visible seam in the codebase and a half-real product.
+
+**Cost.** Roughly doubles Phase 04 and adds Phase 07 entirely.
+
+### D3 — Real queue, swappable provider, ships pointed at a sandbox
+
+**Why.** The seed contact details are invented Philippine mobile numbers. Sending to them either
+bounces or reaches a stranger. Every write path is nonetheless production code — enqueue,
+schedule, retry, delivery event, status transition — so switching to a live provider changes one
+environment variable and nothing else.
+
+**Kept honest by** the allowlist in Phase 07 §4.2, which blocks every recipient even in live mode
+until it is deliberately emptied.
+
+### D4 — No registration
+
+Accounts are provisioned: one Hospital Admin from the command line, everyone else by invitation.
+
+**Why.** Asked for directly. It also removes a whole category of work — email verification, abuse
+controls, spam accounts, and a low-privilege role nobody wanted.
+
+### D5 — Single tenant
+
+One hospital. No `org_id` on any table.
+
+**Why.** Asked for directly. It is the cheapest schema and the simplest row-level security.
+
+**Cost if reversed.** Adding `org_id` later means a column on every table, a rewrite of every
+policy, and a data migration. This is the decision in the list most expensive to change, and it
+was made deliberately with that known.
+
+### D6 — Real time, with a nightly re-anchor
+
+`now()` everywhere. A nightly job recomputes seed row dates from the offsets they were authored
+with.
+
+**Why.** Genuine overdue follow-ups and real SLA breaches are the point of the product. A frozen
+clock makes every timer decorative. Seeding once and never touching it leaves the dashboard
+looking abandoned within a month.
+
+**Why re-anchor rather than shift.** Shifting rows forward accumulates drift and is not
+idempotent. Recomputing from a stored offset produces the same result whether it runs nightly or
+after a week's gap.
+
+**Protected by** `seed_anchor` being a side table. Rows created through the product have no
+anchor and are never touched.
+
+### D7 — Free tiers only
+
+Vercel Hobby, Neon free, pg-boss inside Postgres, GitHub Actions for scheduling.
+
+**Why.** Asked for directly.
+
+**Accepted consequences.** Neon cold starts after idle. Queue drains every five minutes rather
+than continuously. GitHub Actions schedules drift under load and disable after sixty days of
+repository inactivity. Vercel Hobby prohibits commercial use, so this posture cannot survive the
+product becoming one.
+
+**The upgrade path** is about $40 a month: Vercel Pro plus Neon Launch buys minute-granularity
+cron, no commercial-use restriction, Postgres that does not sleep, and point-in-time restore.
+
+### D8 — Service layer, Server Components, Server Actions, thin REST
+
+Rather than a REST API with client-side fetching.
+
+**Why.** One round trip per page instead of two, which matters on a free tier where Neon cold
+starts are measured in hundreds of milliseconds. And the masking rule lands in one auditable
+module rather than at thirty-seven server-to-client boundaries.
+
+**Cost.** All thirty-seven pages split into a server shell and a client body. That is Phase 06,
+the largest phase.
+
+**What was given up.** `docs/API.md` §2.7 sketches a migration that keeps pages as client
+components and swaps their imports — a much smaller diff per file. It was rejected because it
+puts a network round trip on every filter change and spreads loading-state handling across
+thirty-seven files.
+
+---
+
+## 2. Technical decisions
+
+| # | Decision | Alternative | Why |
+|---|---|---|---|
+| T1 | Drizzle | Prisma | No engine binary. Prisma's adds cold-start weight on a free function, and the hand-written schema in `docs/DATABASE.md` is SQL-first already |
+| T2 | Better Auth | Auth.js v5, custom | TOTP, session management, and an admin plugin cover provisioning, MFA, and `/admin/users` without custom work. Native Drizzle adapter |
+| T3 | pg-boss | Inngest, Trigger.dev, QStash | Runs in the database already paid for. No second service, no second failure mode |
+| T4 | `pgcrypto`, key in environment | Plaintext columns, or a KMS | Real encryption at rest for nothing. Isolated call site, so a KMS swap touches one file |
+| T5 | Audit log as its own rate limiter | Redis, a counter table | The data is already there and already indexed. Zero additional state |
+| T6 | Enums generated from `lib/types.ts` | Hand-written twice | Written twice, they drift. A generator plus a CI check makes drift a build failure |
+| T7 | Postgres enums | Text with a check constraint | The unions in `lib/types.ts` are closed sets with a registry in `lib/status.ts`. Native enums keep both ends in step |
+| T8 | `seed_anchor` as a side table | Columns on domain tables | Demo scaffolding stays out of the production schema and is dropped in one statement |
+| T9 | Chart variables as a style attribute | A CSP nonce on the `<style>` element | Smaller change, and removes the only `<style>` element rather than granting it an exception |
+| T10 | Per-staff `conversation_reads` | The current `unread` boolean | Two people reading one thread must not clear each other's badge. The DTO still exposes `unread`, so no screen changes |
+| T11 | Campaign funnel as aggregates | Stored counters | Stored counters disagree with reality eventually. `message_events` is the truth |
+| T12 | 404 for out-of-scope records | 403 | A 403 confirms the record exists |
+| T13 | Reveal is a discrete capability | Derived from `Patients: view` | Marketing needs `view` for audiences and must never unmask. Deriving it would grant exactly the wrong thing |
+
+---
+
+## 3. Deferred
+
+Each of these was considered and consciously left out. None is forgotten.
+
+| # | Deferred | Why | Trigger to revisit |
+|---|---|---|---|
+| X1 | KMS-backed envelope encryption | D1. Environment-held keys are adequate for invented data | Real patient records |
+| X2 | WebAuthn | `docs/SECURITY.md` §3.1 prefers it; TOTP is the stated minimum and covers stolen credentials | Real patient records, or a user asking |
+| X3 | Audit hash chaining | Makes tampering detectable rather than merely prohibited. Grants already prohibit it | A compliance requirement |
+| X4 | Shipping audit entries to a separate system | The more valuable of the two integrity measures — an attacker with database access should not also control the record of it | Real patient records. Higher priority than X3 |
+| X5 | File uploads | Needs content sniffing, size caps, storage outside the web root, authenticated serving, and malware scanning that has no trustworthy free option. Phase 08 §3.4 | A reason to accept real files |
+| X6 | A billing surface | The role matrix names Billing as an area; no route serves it. Policy for a future surface is harmless | A billing screen |
+| X7 | A real AI console | `/ai` returns a canned answer. Wiring a model is a separate piece of work with its own cost and its own data-handling questions | Deliberate decision to build it |
+| X8 | Server-side pagination beyond three collections | Departments, doctors, and staff are bounded by how many a hospital has | A collection passing a few hundred rows |
+| X9 | Redis-backed rate limiting | D7. A Postgres fixed-window table is adequate at this volume, and sits behind an interface | Request volume, or the paid tier |
+| X10 | Accessibility audit | `docs/ARCHITECTURE.md` §9 makes unverified claims. Deserves its own work, not a corner of a backend migration | Its own piece of work |
+| X11 | Load testing | Measures nothing at 24 patients | Real dataset size |
+
+---
+
+## 4. Open
+
+Not decided. Each needs an answer before the phase that depends on it.
+
+| # | Question | Needed by | Default if unanswered |
+|---|---|---|---|
+| O1 | Sentry, or structured logs only? It is the only component transmitting anything to a third party, and `docs/SECURITY.md` §2.7 must be corrected either way | Phase 09 | Logs only. Fewer moving parts, and the claim in §2.7 stays closer to true |
+| O2 | Reveal budget numbers — 40/hour and 200/day are a starting guess | Phase 04 | Ship the guess as configuration and tune from the first month's audit data |
+| O3 | Anomaly thresholds in Phase 09 §3 | Phase 09 | Ship them, expect them to be noisy, tune down |
+| O4 | Does Neon's free plan retention window make point-in-time restore a real recovery path? | Phase 10 | Assume not. Add a nightly `pg_dump` to object storage |
+| O5 | Canonical domain. `BETTER_AUTH_URL`, the HSTS preload submission, and cookie scope all depend on it | Phase 10 | The Vercel-assigned domain. HSTS preload is not submitted until it is settled |
+
+---
+
+## 5. Risks
+
+Carried forward from the audit, with the mitigation each plan actually implements.
+
+| # | Risk | Mitigation | Where |
+|---|---|---|---|
+| R1 | The 37-page split introduces prop-threading bugs at scale | A fixed five-step recipe, one route per commit, a visual baseline diffed after each | 06 §1, 11 §5 |
+| R2 | Unmasked PII reaches a Client Component through the RSC payload | The raw row type is never exported from a service module. A test greps the flight payload for seed values | 04 §2.1, 11 §2.1 |
+| R3 | Neon cold start makes the app feel slow | One round trip per page by design. Pooled HTTP driver. Health check watches latency drift | 01 §1.1, 09 §5 |
+| R4 | GitHub Actions schedules drift, and disable after 60 days of repository inactivity | Health check on `lastDrain`; a failing check opens an issue; Vercel's daily cron as a backstop | 07 §2.1, 09 §5 |
+| R5 | RLS policies silently return empty sets instead of erroring | Policy tests assert exact row counts, not absence of exceptions | 03 §5.3, 11 §2.3 |
+| R6 | Database enums drift from the TypeScript unions | Enums are generated; CI fails on drift | 01 §2.1, 10 §2 |
+| R7 | The re-anchor job corrupts user-created records | Only rows listed in `seed_anchor` are touched. Tested explicitly | 01 §7.2, 07 §6, 11 §3 |
+| R8 | Better Auth's schema conflicts with the hand-authored `staff` table | Kept separate and joined by `staff.user_id`. Better Auth owns its own tables | 02 §2.2 |
+| R9 | Scope grows during Phase 06 as screens reveal missing endpoints | The route checklist is fixed at 37. New endpoints are logged, not built inline | 06 §5 |
+
+### 5.1 The two that deserve attention
+
+**R2** is the one that would matter most if it happened, and it is the one this plan is proudest
+of closing. Making the security property a compile error rather than a review checklist costs one
+line of discipline per service module.
+
+**R9** is the one most likely to happen. Phase 06 is 6–8 sessions of mechanical work, and
+mechanical work is where scope creeps in as small improvements. The route checklist exists to be
+the answer: thirty-seven routes, no more, and anything discovered gets written down instead of
+built.
+
+---
+
+## 6. What this plan does not claim
+
+Worth stating, because a plan that sounds complete invites being treated as complete.
+
+- It is not a security certification. It implements the controls in `docs/SECURITY.md` §3 for
+  invented data. A deployment holding real patient records needs D1 revisited and everything in
+  §3 of this document reconsidered.
+- The effort estimates in the README are estimates. Phases 04 and 06 are the ones that overrun.
+- No phase has been executed. Every `Done when` list is a hypothesis about what will prove the
+  work correct, and some of them will turn out to be the wrong checks.
