@@ -1,6 +1,8 @@
+import { eq } from "drizzle-orm";
 import { hash, verify } from "@node-rs/argon2";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { nextCookies } from "better-auth/next-js";
 import { admin, twoFactor } from "better-auth/plugins";
 import { db } from "@/lib/server/db";
 import * as schema from "@/lib/server/db/schema";
@@ -52,6 +54,36 @@ export const auth = betterAuth({
       hash: (password) => hash(password, ARGON2_PARAMS),
       verify: ({ hash: passwordHash, password }) => verify(passwordHash, password),
     },
+    // plan §4 "Rotation: new session id on ... password change". This
+    // product's only password-change surface is the token-based reset flow
+    // (plan §7 / Task 3's /forgot-password → /reset-password), not an
+    // authenticated /change-password screen (none exists in plan §8's
+    // screen table). Revoking every session forces a fresh sign-in, which
+    // is exactly session-id rotation — verified against
+    // node_modules/better-auth/dist/api/routes/password.mjs's
+    // `resetPassword` handler, which calls
+    // `internalAdapter.deleteUserSessions(userId)` when this is true. The
+    // matching `sendResetPassword` callback and the reset screens
+    // themselves are Task 3/4's job; this flag just makes the mechanism do
+    // the right thing once they exist.
+    //
+    // Better Auth's other password-change surface, POST /change-password
+    // (node_modules/better-auth/dist/api/routes/update-user.mjs), is
+    // authenticated and rotates the session id only when the *caller*
+    // passes `revokeOtherSessions: true` per request — there is no
+    // instance-level config for it. Nothing in this product calls that
+    // endpoint yet; if a future phase adds an in-app "change password"
+    // screen, it must pass `revokeOtherSessions: true` itself to get the
+    // same guarantee.
+    //
+    // plan §4's OTHER rotation trigger, "on privilege change", has no
+    // implementation here on purpose: there is no privilege-change flow in
+    // this codebase yet (role/department changes land in Phase 03's
+    // nine-role authorization matrix). Don't invent one. Whatever Phase 03
+    // adds should rotate the acting session's id the same way this does —
+    // e.g. by revoking and recreating it, or by mirroring
+    // `revokeOtherSessions` on whatever endpoint performs the change.
+    revokeSessionsOnPasswordReset: true,
   },
 
   session: {
@@ -60,5 +92,75 @@ export const auth = betterAuth({
     cookieCache: { enabled: true, maxAge: 60 },
   },
 
-  plugins: [twoFactor({ issuer: "CareFlow · St. Aurora" }), admin()],
+  /**
+   * plan/02-authentication.md §2.2's last paragraph (moved into Task 2's
+   * scope by the controller; see task-2-brief.md): "Every session resolves
+   * to a `staff` row. A `user` without one cannot sign in; the callback
+   * rejects it."
+   *
+   * `session.create.before` is the hook that fires at the point a session
+   * row is about to be inserted — verified against
+   * node_modules/better-auth/dist/db/with-hooks.mjs's `createWithHooks`:
+   * returning `false` makes `createWithHooks` resolve to `null`, which
+   * every call site (`internalAdapter.createSession`, used by both
+   * `/sign-in/email` and the twoFactor plugin's own post-TOTP
+   * `verifyTwoFactor`) treats as "failed to create session" and throws.
+   * This is the *only* wrapper this invariant needs: enforcing it here
+   * covers every path that creates a session, including the TOTP-verified
+   * one, and needs no separate custom sign-in wrapper (see task-2-report.md
+   * for why this reads on the brief's "build one wrapper that does both"
+   * fallback instruction).
+   *
+   * Deliberately does NOT also check `user.twoFactorEnabled` here — see
+   * task-2-report.md for why that check lives in
+   * lib/server/auth/session.ts's read-side validation instead of blocking
+   * session creation.
+   */
+  databaseHooks: {
+    session: {
+      create: {
+        before: async (session) => {
+          const [staffRow] = await db
+            .select({ id: schema.staff.id })
+            .from(schema.staff)
+            .where(eq(schema.staff.userId, session.userId))
+            .limit(1);
+          if (!staffRow) return false;
+        },
+      },
+    },
+  },
+
+  plugins: [
+    twoFactor({
+      issuer: "CareFlow · St. Aurora",
+      // plan §5 / task-2-brief.md §5: this product has exactly one lockout
+      // system (`auth_attempts`, lib/server/auth/lockout.ts), reused by MFA
+      // per plan §3.1 ("Three failures reuse the lockout counter from
+      // §5"). The twoFactor plugin ships its own independent lockout over
+      // the `verified` / `failed_verification_count` / `locked_until`
+      // columns Task 1 added to `two_factor` (required unconditionally by
+      // the plugin's schema, kept for that reason) — verified against
+      // node_modules/better-auth/dist/plugins/two-factor/verify-two-factor.mjs's
+      // `resolveAccountLockoutConfig`, which reads `accountLockout` off
+      // this same plugin config and defaults `enabled` to `true`.
+      // Disabling it here (rather than setting a very high threshold)
+      // stops it from ever firing, leaving `auth_attempts` as the sole
+      // source of truth. The columns stay in the schema — the plugin still
+      // requires them to exist even when disabled.
+      accountLockout: { enabled: false },
+    }),
+    admin(), // create, list, ban, impersonate
+    // Must be last: node_modules/better-auth/dist/integrations/next-js.mjs's
+    // `nextCookies()` reads `set-cookie` off the internal response of
+    // whatever ran before it and replays it through next/headers' cookies()
+    // API, which is what actually persists the session cookie when
+    // `auth.api.*` is called directly from a Server Action (this product's
+    // only call path per plan §8 — no client-side authClient, no mounted
+    // /api/auth/[...all] route handler exists in this worktree yet). Task 1
+    // did not add this; without it, Task 4's login/mfa Server Actions would
+    // compute a session but never actually set it in the browser. Flagged
+    // for Task 3/4 in task-2-report.md.
+    nextCookies(),
+  ],
 });

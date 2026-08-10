@@ -41,6 +41,7 @@ const actionMeta: Record<AuditAction, { label: string; tone: Tone; icon: LucideI
   deleted: { label: "Deleted", tone: "danger", icon: Trash2 },
   exported: { label: "Exported", tone: "warning", icon: FileDown },
   "signed-in": { label: "Signed in", tone: "neutral", icon: LogIn },
+  locked: { label: "Locked", tone: "danger", icon: ShieldAlert },
 };
 
 export default function AuditPage() {
