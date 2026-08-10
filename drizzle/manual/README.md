@@ -13,9 +13,10 @@ Applied with `psql` (or any migration runner that just executes SQL in order) ag
 | 4 | `0003_no_double_booking.sql` | Step 2 (`appointments` must exist) | `careflow_owner` | The GiST exclusion constraint. |
 | 5 | `0004_follow_ups_view.sql` | Step 2 (`follow_ups` must exist) | `careflow_owner` | Derives `status` so it can never go stale. |
 | 6 | `0005_grants.sql` | Steps 2-4 done | `careflow_owner` | Retroactive grant for tables that existed before step 1's `ALTER DEFAULT PRIVILEGES` took effect. Must run last — its blanket grant would otherwise re-grant UPDATE/DELETE on `audit_log`. |
+| 7 | `0006_audit_log_actor_nullable.sql` | Step 3 (`audit_log` must exist) | `careflow_owner` | Drops `actor_id`'s `NOT NULL` (plan/02-authentication.md §5): a lockout audit entry for an email that never resolved to a `staff` row still needs a row to live in. No ordering dependency on 0003-0005; listed last only because it was added last. |
 
-Re-run `0001` and `0005` are safe (idempotent / re-assert the same grants). `0002`-`0004` are not —
-each is a one-time `CREATE`.
+Re-run `0001`, `0005`, and `0006` are safe (idempotent — `0006`'s `DROP NOT NULL` is a no-op if the
+column is already nullable). `0002`-`0004` are not — each is a one-time `CREATE`.
 
 `careflow_app` must never be granted `BYPASSRLS`. It is easy to grant by accident while
 debugging Phase 03's row-level security policies; don't.

@@ -19,9 +19,14 @@ export const auditLog = pgTable("audit_log", {
   // `.primaryKey()` on `id` alone here only so the query builder treats
   // this column as the row identity; it is not diffed against the DB.
   id: bigserial("id", { mode: "number" }).primaryKey(),
-  actorId: uuid("actor_id")
-    .notNull()
-    .references(() => staff.id),
+  // Nullable as of drizzle/manual/0006_audit_log_actor_nullable.sql (plan
+  // §5, Task 2's lockout fan-out): a locked-account audit entry needs to
+  // exist even when the attacked email never resolved to a real `staff`
+  // row (plan §5's "every lock writes an audit entry" has no carve-out for
+  // that case, and losing the record of someone probing a dead address is
+  // exactly the visibility a hospital's security posture wants). See
+  // lib/server/auth/lockout.ts's `resolveAuditTarget`.
+  actorId: uuid("actor_id").references(() => staff.id),
   actorName: text("actor_name").notNull(),
   action: auditAction("action").notNull(),
   resourceType: text("resource_type").notNull(),

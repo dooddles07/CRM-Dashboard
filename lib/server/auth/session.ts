@@ -119,10 +119,11 @@ export async function resolveSession(headers: Headers): Promise<AuthedSession | 
  * Resolves the request's client IP the same way Better Auth's own session
  * tracking does (`node_modules/@better-auth/core/dist/utils/ip.mjs`,
  * honouring `advanced.ipAddress` config on the shared `auth` instance),
- * rather than re-deriving forwarded-header parsing here. Used by proxy.ts
- * and by the lockout module's callers (Task 4's login Server Action) to key
- * `auth_attempts.ip` consistently with whatever Better Auth itself would
- * have recorded.
+ * rather than re-deriving forwarded-header parsing here. proxy.ts doesn't
+ * need this — it only checks session validity, not lockout — this is for
+ * lib/server/auth/lockout.ts's callers (Task 4's login/mfa Server Actions)
+ * to key `auth_attempts.ip` consistently with whatever Better Auth itself
+ * would have recorded.
  */
 export function resolveClientIp(headers: Headers): string | null {
   return getIp(headers, auth.options);

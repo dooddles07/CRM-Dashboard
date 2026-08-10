@@ -403,7 +403,7 @@ The table this product exists to protect:
 ```sql
 CREATE TABLE audit_log (
   id             BIGSERIAL PRIMARY KEY,
-  actor_id       UUID NOT NULL REFERENCES staff(id),
+  actor_id       UUID REFERENCES staff(id),  -- nullable: see below
   actor_name     TEXT NOT NULL,            -- denormalised: survives staff deletion
   action         audit_action NOT NULL,
   resource_type  TEXT NOT NULL,
@@ -428,6 +428,15 @@ Three constraints:
 
 `actor_name` is denormalised on purpose. An audit entry must remain readable after the staff
 record is deleted.
+
+`actor_id` is nullable (`drizzle/manual/0006_audit_log_actor_nullable.sql`, added in Phase 02):
+most audit entries have a real actor, but plan/02-authentication.md §5's lockout requires an entry
+for every lock, including one against an email that never resolved to a `staff` row at all — a
+probe of a dead or not-yet-provisioned address, which is exactly the reconnaissance activity a
+hospital's security posture wants visibility into. `actor_id` is `NULL` for those; `actor_name`
+still carries a human-readable description (the attempted email, or the triggering IP for an
+IP-driven lock spread across several accounts) so the row stays readable the same way a
+deleted-staff row does.
 
 The table is append-only. No application role holds `UPDATE` or `DELETE`:
 

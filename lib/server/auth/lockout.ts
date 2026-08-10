@@ -35,6 +35,16 @@ const SEVERITY: Record<LockoutConsequence["kind"], number> = {
   admin_lock: 3,
 };
 
+function isLockedKind(kind: LockoutConsequence["kind"]): boolean {
+  return kind === "locked" || kind === "admin_lock";
+}
+
+interface CounterState {
+  count: number;
+  mostRecentAt: Date | null;
+  consequence: LockoutConsequence;
+}
+
 /**
  * Records one login/MFA attempt. `email` is whatever the caller submitted
  * on the form, recorded as-is regardless of whether it resolves to a real
@@ -44,12 +54,11 @@ const SEVERITY: Record<LockoutConsequence["kind"], number> = {
  * identically to a real one, so lockout state itself can't be used to
  * enumerate accounts.
  *
- * Returns the consequence that applies *after* this attempt is recorded
- * (same computation `checkLockout` does), and — only on the exact attempt
- * that newly crosses the 10- or 15-failure threshold, and only when the
- * email resolves to a real `staff` account — writes the audit entry and
- * Hospital Admin notifications plan §5 requires. See `maybeAuditLock`'s
- * comment for why a non-resolving email is not audited.
+ * Returns the consequence that applies *after* this attempt is recorded,
+ * and — the first time (per lock episode) the combined consequence reaches
+ * "locked"/"admin_lock" — writes the audit entry and Hospital Admin
+ * notifications plan §5 requires. See `auditLockOnce` for attribution and
+ * de-duplication.
  */
 export async function recordAuthAttempt(params: {
   email: string | null;
@@ -57,19 +66,25 @@ export async function recordAuthAttempt(params: {
   outcome: AuthAttemptOutcome;
 }): Promise<LockoutConsequence> {
   const { email, ip, outcome } = params;
-  const before = await checkLockout({ email, ip });
   await db.insert(authAttempts).values({ email, ip, outcome });
-  const after = await checkLockout({ email, ip });
+  const { email: emailState, combined } = await evaluateCounters(email, ip);
 
-  const justEscalatedToLock =
-    outcome !== "success" &&
-    SEVERITY[after.kind] > SEVERITY[before.kind] &&
-    (after.kind === "locked" || after.kind === "admin_lock");
-  if (justEscalatedToLock) {
-    await maybeAuditLock({ email, ip });
+  if (outcome !== "success" && isLockedKind(combined.kind)) {
+    // Review finding #1: attribute by which counter actually crossed, not
+    // by whichever account this request happened to be about. If the
+    // email's *own* count independently reached a lock-worthy tier, this
+    // account is genuinely being targeted (even if the IP counter is also
+    // high — e.g. one attacker hammering one account from one address).
+    // Otherwise the account's own count is still low and the combined
+    // "locked" verdict is a side effect of this IP's aggregate activity,
+    // plausibly spread across many different accounts — attributing that
+    // to whichever account happened to be hit last would misrepresent a
+    // password-spray as a single-account brute-force in the audit trail.
+    const source: "email" | "ip" = isLockedKind(emailState.consequence.kind) ? "email" : "ip";
+    await auditLockOnce({ email, ip, source });
   }
 
-  return after;
+  return combined;
 }
 
 /**
@@ -85,15 +100,31 @@ export async function recordAuthAttempt(params: {
  * something the plan pins down unambiguously.
  */
 export async function checkLockout(params: { email: string | null; ip: string }): Promise<LockoutConsequence> {
+  const { combined } = await evaluateCounters(params.email, params.ip);
+  return combined;
+}
+
+/**
+ * Shared by `checkLockout` (public: "what happens to this attempt") and
+ * `recordAuthAttempt` (needs the per-counter breakdown too, to attribute a
+ * lock correctly — review finding #1).
+ */
+async function evaluateCounters(
+  email: string | null,
+  ip: string,
+): Promise<{ email: CounterState; ip: CounterState; combined: LockoutConsequence }> {
   const [byEmail, byIp] = await Promise.all([
-    params.email ? windowStats(authAttempts.email, params.email) : Promise.resolve({ count: 0, mostRecentAt: null }),
-    windowStats(authAttempts.ip, params.ip),
+    email ? windowStats(authAttempts.email, email) : Promise.resolve({ count: 0, mostRecentAt: null }),
+    windowStats(authAttempts.ip, ip),
   ]);
 
-  const emailConsequence = consequenceForCount(byEmail.count, byEmail.mostRecentAt);
-  const ipConsequence = consequenceForCount(byIp.count, byIp.mostRecentAt);
+  const emailState: CounterState = { ...byEmail, consequence: consequenceForCount(byEmail.count, byEmail.mostRecentAt) };
+  const ipState: CounterState = { ...byIp, consequence: consequenceForCount(byIp.count, byIp.mostRecentAt) };
+  const combined = SEVERITY[emailState.consequence.kind] >= SEVERITY[ipState.consequence.kind]
+    ? emailState.consequence
+    : ipState.consequence;
 
-  return SEVERITY[emailConsequence.kind] >= SEVERITY[ipConsequence.kind] ? emailConsequence : ipConsequence;
+  return { email: emailState, ip: ipState, combined };
 }
 
 async function windowStats(
@@ -127,40 +158,39 @@ function consequenceForCount(count: number, mostRecentAt: Date | null): LockoutC
   return { kind: "none" };
 }
 
+interface AuditTarget {
+  actorId: string | null;
+  actorName: string;
+  resourceType: string;
+  resourceId: string;
+}
+
 /**
  * plan §5: "Every lock writes an audit entry and a `security` notification
- * to Hospital Admins." `audit_log.actor_id` is `NOT NULL REFERENCES
- * staff(id)` (docs/DATABASE.md §2.7, drizzle/manual/0002_audit_log.sql) —
- * there is no "system" or "anonymous" actor to attribute an audit entry to.
- * When the locked email doesn't resolve to a real `user` + `staff` pair
- * (an attack against a nonexistent or not-yet-provisioned address), this
- * intentionally skips the audit/notification writes rather than weakening
- * that constraint: the lockout *behaviour* (refusing further attempts)
- * still applies identically either way per `checkLockout`, so nothing
- * about account existence leaks from whether an admin gets notified — only
- * the admins themselves would ever see that difference, and only by
- * comparing it against the `auth_attempts` rows directly, which is exactly
- * the audit trail plan §5 wants them to have.
+ * to Hospital Admins." Writes at most once per lock episode (review finding
+ * #3) and attributes correctly by source (review finding #1).
+ *
+ * De-duplication is a best-effort guard, not a hard transactional one:
+ * `alreadyAudited` checks for a matching `locked` row before inserting.
+ * Two requests that both cross the threshold in the same instant can still
+ * both pass that check before either has inserted — the brief's own framing
+ * ("doesn't need to be elaborate") is why this doesn't reach for an
+ * advisory lock or a `SELECT ... FOR UPDATE`; a duplicate audit row in that
+ * narrow race is a cosmetic risk (an extra, identical, non-misleading row —
+ * finding #1's misattribution risk is what actually mattered), not a
+ * correctness one, since the lockout *behaviour* itself doesn't depend on
+ * this write succeeding exactly once.
  */
-async function maybeAuditLock(params: { email: string | null; ip: string }): Promise<void> {
-  if (!params.email) return;
-
-  const [userRow] = await db
-    .select({ id: userTable.id })
-    .from(userTable)
-    .where(eq(userTable.email, params.email))
-    .limit(1);
-  if (!userRow) return;
-
-  const [staffRow] = await db.select().from(staff).where(eq(staff.userId, userRow.id)).limit(1);
-  if (!staffRow) return; // same invariant as lib/server/auth/index.ts's session hook
+async function auditLockOnce(params: { email: string | null; ip: string; source: "email" | "ip" }): Promise<void> {
+  const target = await resolveAuditTarget(params);
+  if (await alreadyAudited(target)) return;
 
   await db.insert(auditLog).values({
-    actorId: staffRow.id,
-    actorName: staffRow.name,
+    actorId: target.actorId,
+    actorName: target.actorName,
     action: "locked",
-    resourceType: "staff",
-    resourceId: staffRow.id,
+    resourceType: target.resourceType,
+    resourceId: target.resourceId,
     ipAddress: params.ip,
   });
 
@@ -175,9 +205,83 @@ async function maybeAuditLock(params: { email: string | null; ip: string }): Pro
       staffId: admin.id,
       category: "security" as const,
       title: "Account locked after repeated failed sign-ins",
-      body: `${staffRow.name} · ${params.ip} · locked per plan §5's lockout thresholds.`,
+      body: `${target.actorName} · ${params.ip} · locked per plan §5's lockout thresholds.`,
       href: "/admin/security",
       tone: "danger" as const,
     })),
   );
+}
+
+/**
+ * Resolves who/what a lock audit entry should be attributed to.
+ *
+ * `source: "ip"` (review finding #1) — the account's own failure count is
+ * still below the lock threshold; the combined "locked" verdict came from
+ * this IP's aggregate activity, which may span several different accounts.
+ * Attributed to the IP itself (`actor_id` null, `resource_type` "ip"), not
+ * to whichever account this particular request happened to name.
+ *
+ * `source: "email"` — the account's own count crossed the threshold, a
+ * genuine targeted attack on that specific address. Resolved through
+ * `user`/`staff` the same way the staff-resolution invariant does
+ * elsewhere (./index.ts, ./session.ts). If it resolves to a real `staff`
+ * row, attributed there. If it doesn't (review finding #2) — an attack
+ * against a dead or not-yet-provisioned address — `actor_id` is `NULL`
+ * (drizzle/manual/0006_audit_log_actor_nullable.sql) and `actor_name`
+ * carries the attempted email instead, so the audit trail still records
+ * that the address was probed, which is the whole point: losing that
+ * record would hide a real reconnaissance signal from the Hospital Admins
+ * plan §5 is writing this for.
+ */
+async function resolveAuditTarget(params: { email: string | null; ip: string; source: "email" | "ip" }): Promise<AuditTarget> {
+  if (params.source === "ip") {
+    return {
+      actorId: null,
+      actorName: `Multiple accounts (IP-driven lockout from ${params.ip})`,
+      resourceType: "ip",
+      resourceId: params.ip,
+    };
+  }
+
+  if (params.email) {
+    const [userRow] = await db.select({ id: userTable.id }).from(userTable).where(eq(userTable.email, params.email)).limit(1);
+    if (userRow) {
+      const [staffRow] = await db.select().from(staff).where(eq(staff.userId, userRow.id)).limit(1);
+      if (staffRow) {
+        return { actorId: staffRow.id, actorName: staffRow.name, resourceType: "staff", resourceId: staffRow.id };
+      }
+    }
+  }
+
+  return {
+    actorId: null,
+    actorName: `Unknown account (${params.email ?? "no email submitted"})`,
+    resourceType: "staff",
+    resourceId: params.email ?? params.ip,
+  };
+}
+
+/**
+ * Whether a "locked" audit entry already exists for this exact target
+ * within the current 15-minute counting window — the de-duplication half
+ * of review finding #3. Keying on `(resourceType, resourceId)` rather than
+ * `actorId` is what lets two different unresolved emails (both `actorId:
+ * null`) get their own separate entries while still deduping repeat writes
+ * against the *same* unresolved email or the *same* attacking IP.
+ */
+async function alreadyAudited(target: Pick<AuditTarget, "resourceType" | "resourceId">): Promise<boolean> {
+  const windowStart = new Date(Date.now() - WINDOW_MS);
+  const [row] = await db
+    .select({ id: auditLog.id })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.action, "locked"),
+        eq(auditLog.resourceType, target.resourceType),
+        eq(auditLog.resourceId, target.resourceId),
+        gte(auditLog.occurredAt, windowStart),
+      ),
+    )
+    .limit(1);
+  return !!row;
 }
