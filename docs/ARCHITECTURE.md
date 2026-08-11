@@ -16,10 +16,11 @@ they live there.
 | UI, routing, interaction | Built |
 | Domain model and types | Built |
 | Seed data | Built |
-| Session state | Built (in-memory, resets on reload) |
+| Screen state | Built (in-memory, resets on reload — migrating to the service layer) |
 | HTTP API | Not built. See [API.md](API.md) for the proposed contract |
-| Database | Not built. See [DATABASE.md](DATABASE.md) for the proposed schema |
-| Authentication | Screens only. No credential checking |
+| Database | Built. Neon Postgres, Drizzle schema, migrations, seed |
+| Authentication | Built. Argon2id, TOTP, real sessions with idle and absolute timeouts, lockout |
+| Authorisation | Built. Nine-role matrix enforced in the application and in Postgres row-level security |
 
 The auth screens at `/login`, `/forgot-password`, and `/mfa` present the flows without validating
 anything. Any route can be reached directly.
@@ -241,9 +242,13 @@ loop, dialog open and close through the URL, and density propagation across navi
 
 ## 11. Known constraints
 
-State lives in memory. A reload resets revealed values, created records, and preferences. Adding
-`zustand/middleware` persistence would fix it, and was left out because a demo that resets
-cleanly demonstrates better.
+Screen state still lives in memory: the zustand store holds revealed values, created records, and
+preferences, and a reload resets them. That is now a migration gap rather than a design choice —
+the database, sessions, and authorisation are real, and the screens have not yet been moved onto
+them. Each screen loses its in-memory copy as it is converted to read through the service layer.
+
+Sessions are the exception and are no longer in-memory at all: they are rows, enforced on every
+request, with idle and absolute timeouts.
 
 Filtering runs client-side over arrays in the hundreds. A real deployment moves it server-side
 before the patient table reaches five figures.
