@@ -22,7 +22,8 @@ import {
   notesFor,
   referralsForPatient,
 } from "@/lib/data/patient-record";
-import { formatDate, relativeDay, relativeTime } from "@/lib/format";
+import { formatDate, mask, relativeDay, relativeTime } from "@/lib/format";
+import { useViewer } from "@/components/shell/viewer-context";
 import { Panel, PanelBody, PanelHeader } from "@/components/data/panel";
 import { StatusChip } from "@/components/healthcare/status-chip";
 import { Protected } from "@/components/healthcare/protected";
@@ -45,6 +46,8 @@ interface PatientOverviewProps {
 }
 
 export function PatientOverview({ patient, today = new Date().toISOString().slice(0, 10) }: PatientOverviewProps) {
+  // Courtesy only: revealAction checks the same capability server-side.
+  const canReveal = useViewer().permissions.capabilities.includes("reveal");
   const appointments = appointmentsFor(patient.id);
   const upcoming = appointments
     .filter((a) => a.date >= today || a.status === "confirmed")
@@ -224,9 +227,12 @@ export function PatientOverview({ patient, today = new Date().toISOString().slic
           <PanelHeader title="Summary" />
           <dl className="divide-y divide-line">
             {[
-              { label: "Date of birth", node: <Protected value={patient.dateOfBirth} kind="dob" resource="Patient" resourceId={patient.id} field="Date of birth" /> },
-              { label: "Email", node: <Protected value={patient.email} kind="email" resource="Patient" resourceId={patient.id} field="Email address" /> },
-              { label: "Address", node: <Protected value={patient.address} kind="address" resource="Patient" resourceId={patient.id} field="Home address" /> },
+              { label: "Date of birth", node: <Protected masked={mask(patient.dateOfBirth, "dob")}
+              revealable={canReveal} resource="patient" resourceId={patient.id} field="dateOfBirth" label="Date of birth" /> },
+              { label: "Email", node: <Protected masked={mask(patient.email, "email")}
+              revealable={canReveal} resource="patient" resourceId={patient.id} field="email" label="Email address" /> },
+              { label: "Address", node: <Protected masked={mask(patient.address, "address")}
+              revealable={canReveal} resource="patient" resourceId={patient.id} field="address" label="Home address" /> },
               {
                 label: "Emergency contact",
                 node: (

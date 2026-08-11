@@ -23,6 +23,8 @@ import { useCareflow } from "@/lib/store";
 import { departmentName, departments } from "@/lib/data/constants";
 import { doctorById, doctors } from "@/lib/data/people";
 import { patientStatus } from "@/lib/status";
+import { mask } from "@/lib/format";
+import { useViewer } from "@/components/shell/viewer-context";
 import { formatDateShort, relativeDay } from "@/lib/format";
 import { PageHeader } from "@/components/data/page-header";
 import { DataTable, selectionColumn } from "@/components/data/data-table";
@@ -60,6 +62,8 @@ const savedViews = [
 type ViewId = (typeof savedViews)[number]["id"];
 
 export default function PatientsPage() {
+  // Courtesy only: revealAction checks the same capability server-side.
+  const canReveal = useViewer().permissions.capabilities.includes("reveal");
   const router = useRouter();
   const patients = useCareflow((s) => s.patients);
   const logAudit = useCareflow((s) => s.logAudit);
@@ -146,11 +150,11 @@ export default function PatientsPage() {
         cell: ({ row }) => (
           <div onClick={(e) => e.stopPropagation()}>
             <Protected
-              value={row.original.phone}
-              kind="phone"
-              resource="Patient"
+              masked={mask(row.original.phone, "phone")}
+              revealable={canReveal}
+              resource="patient"
               resourceId={row.original.id}
-              field="Mobile number"
+              field="phone" label="Mobile number"
             />
           </div>
         ),

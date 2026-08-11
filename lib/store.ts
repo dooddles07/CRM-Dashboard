@@ -37,15 +37,24 @@ interface CareflowState {
   patients: Patient[];
   notifications: AppNotification[];
   auditLog: AuditEntry[];
-  /** Keys of PII the current session has chosen to reveal. */
-  revealed: Record<string, true>;
+  /**
+   * PII revealed this session. plan/04-service-layer.md §10 keeps this slice
+   * and changes what it holds: it used to be a set of flags, because the
+   * plaintext was already in the bundle and "revealed" only meant "stop
+   * masking it". Now the plaintext arrives from the server after an audit
+   * entry commits, so the value itself lives here — in memory, never
+   * persisted, dropped at `expiresAt`.
+   */
+  revealed: Record<string, { value: string; expiresAt: string }>;
   commandOpen: boolean;
   notificationsOpen: boolean;
   railCollapsed: boolean;
   density: "comfortable" | "compact";
 
-  reveal: (req: RevealRequest) => void;
-  isRevealed: (key: string) => boolean;
+  /** Stores a value `revealAction` returned. Called only by `Protected`. */
+  setRevealed: (key: string, value: string, expiresAt: string) => void;
+  /** The revealed value, or `null` when never revealed or past its expiry. */
+  revealedValue: (key: string) => string | null;
   logAudit: (
     entry: Omit<AuditEntry, "id" | "actorId" | "actorName" | "timestamp" | "ip" | "device">,
   ) => void;
@@ -83,31 +92,21 @@ export const useCareflow = create<CareflowState>((set, get) => ({
   railCollapsed: false,
   density: "comfortable",
 
-  reveal: (req) => {
-    const key = revealKey(req);
-    if (get().revealed[key]) return;
-    set((s) => ({
-      revealed: { ...s.revealed, [key]: true },
-      auditLog: [
-        {
-          id: nextAuditId(),
-          actorId: get().actor.id,
-          actorName: get().actor.name,
-          action: "revealed",
-          resource: req.resource,
-          resourceId: req.resourceId,
-          field: req.field,
-          previousValue: null,
-          newValue: null,
-          timestamp: new Date().toISOString(),
-          ...SESSION,
-        },
-        ...s.auditLog,
-      ],
-    }));
-  },
+  setRevealed: (key, value, expiresAt) =>
+    set((s) => ({ revealed: { ...s.revealed, [key]: { value, expiresAt } } })),
 
-  isRevealed: (key) => Boolean(get().revealed[key]),
+  /**
+   * Honours expiresAt on read rather than on a timer. plan/04 §5 calls the
+   * expiry advisory — the server does not remember grants — so this is the
+   * client keeping its own promise to drop the value, and a stale entry
+   * simply stops being returned rather than needing a sweep.
+   */
+  revealedValue: (key) => {
+    const entry = get().revealed[key];
+    if (!entry) return null;
+    if (Date.parse(entry.expiresAt) <= Date.now()) return null;
+    return entry.value;
+  },
 
   logAudit: (entry) =>
     set((s) => ({

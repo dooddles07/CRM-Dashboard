@@ -25,7 +25,8 @@ import {
   notesFor,
   referralsForPatient,
 } from "@/lib/data/patient-record";
-import { relativeDay } from "@/lib/format";
+import { mask, relativeDay } from "@/lib/format";
+import { useViewer } from "@/components/shell/viewer-context";
 import { RecordHeader } from "@/components/record/record-header";
 import { Spine } from "@/components/record/spine";
 import { PatientOverview } from "@/components/patient/overview";
@@ -64,6 +65,8 @@ import {
 } from "@/components/ui/alert-dialog";
 
 export default function PatientRecordPage() {
+  // Courtesy only: revealAction checks the same capability server-side.
+  const canReveal = useViewer().permissions.capabilities.includes("reveal");
   const { id } = useParams<{ id: string }>();
   const tab = useSearchParams().get("tab") ?? "overview";
   const patient = useCareflow((s) => s.patients.find((p) => p.id === id));
@@ -140,11 +143,11 @@ export default function PatientRecordPage() {
             label: "Mobile",
             value: (
               <Protected
-                value={patient.phone}
-                kind="phone"
-                resource="Patient"
+                masked={mask(patient.phone, "phone")}
+              revealable={canReveal}
+                resource="patient"
                 resourceId={patient.id}
-                field="Mobile number"
+                field="phone" label="Mobile number"
               />
             ),
           },

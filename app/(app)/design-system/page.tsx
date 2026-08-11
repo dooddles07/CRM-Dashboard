@@ -23,6 +23,7 @@ import {
 } from "@/components/data/skeletons";
 import { StatusChip, ToneDot } from "@/components/healthcare/status-chip";
 import { PersonAvatar } from "@/components/healthcare/person-avatar";
+import { mask } from "@/lib/format";
 import { Protected } from "@/components/healthcare/protected";
 import {
   appointmentStatus,
@@ -515,25 +516,30 @@ export default function DesignSystemPage() {
               />
               <dl className="divide-y divide-line">
                 {[
-                  { label: "Mobile", value: "+63 917 421 8890", kind: "phone" as const, field: "Mobile number" },
-                  { label: "Email", value: "maria.santos@example.com", kind: "email" as const, field: "Email address" },
-                  { label: "Date of birth", value: "1981-03-14", kind: "dob" as const, field: "Date of birth" },
+                  // `value` is the plaintext only because this is a showcase of
+                  // fixed props. Everywhere else `Protected` receives the mask
+                  // and the plaintext never leaves the server.
+                  { row: "Mobile", value: "+63 917 421 8890", kind: "phone" as const, field: "phone" as const, label: "Mobile number" },
+                  { row: "Email", value: "maria.santos@example.com", kind: "email" as const, field: "email" as const, label: "Email address" },
+                  { row: "Date of birth", value: "1981-03-14", kind: "dob" as const, field: "dateOfBirth" as const, label: "Date of birth" },
                   {
-                    label: "Address",
+                    row: "Address",
                     value: "18 Sampaguita St, Barangay Kaunlaran, Quezon City",
                     kind: "address" as const,
-                    field: "Home address",
+                    field: "address" as const,
+                    label: "Home address",
                   },
                 ].map((f) => (
                   <div key={f.field} className="flex items-center justify-between gap-4 px-4 py-2.5">
-                    <dt className="text-body-sm text-ink-3">{f.label}</dt>
+                    <dt className="text-body-sm text-ink-3">{f.row}</dt>
                     <dd className="text-body-sm text-ink">
                       <Protected
-                        value={f.value}
-                        kind={f.kind}
-                        resource="Patient"
+                        masked={mask(f.value, f.kind)}
+                        revealable
+                        resource="patient"
                         resourceId="PT-102938"
                         field={f.field}
+                        label={f.label}
                       />
                     </dd>
                   </div>
