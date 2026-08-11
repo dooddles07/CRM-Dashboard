@@ -28,6 +28,12 @@ export const auditLog = pgTable("audit_log", {
   // lib/server/auth/lockout.ts's `resolveAuditTarget`.
   actorId: uuid("actor_id").references(() => staff.id),
   actorName: text("actor_name").notNull(),
+  // plan/03-authorisation.md §7, added by drizzle/manual/0008_impersonation_audit.sql.
+  // The Super Admin really at the keyboard, when `actor_id` is somebody they
+  // were impersonating. NULL on every ordinary entry — `actor_id` is left as
+  // the impersonated staff member deliberately, so this entry agrees with
+  // every other record of the same operation about who appeared to act.
+  impersonatedBy: uuid("impersonated_by").references(() => staff.id),
   action: auditAction("action").notNull(),
   resourceType: text("resource_type").notNull(),
   resourceId: text("resource_id").notNull(),

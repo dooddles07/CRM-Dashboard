@@ -12,6 +12,7 @@ import {
   PencilLine,
   ScrollText,
   ShieldAlert,
+  UserCog,
   Trash2,
   type LucideIcon,
 } from "lucide-react";
@@ -44,6 +45,12 @@ const actionMeta: Record<AuditAction, { label: string; tone: Tone; icon: LucideI
   "signed-in": { label: "Signed in", tone: "neutral", icon: LogIn },
   "signed-out": { label: "Signed out", tone: "neutral", icon: LogOut },
   locked: { label: "Locked", tone: "danger", icon: ShieldAlert },
+  // plan/03-authorisation.md §7. Both are `danger`, not `neutral`: an
+  // impersonation is a Super Admin operating as somebody else, and the point
+  // of auditing it is that it should stand out in this table rather than read
+  // as routine.
+  "impersonation-started": { label: "Acting as user", tone: "danger", icon: UserCog },
+  "impersonation-ended": { label: "Stopped acting", tone: "neutral", icon: UserCog },
 };
 
 export default function AuditPage() {

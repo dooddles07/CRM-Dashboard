@@ -194,7 +194,19 @@ export const auth = betterAuth({
       // requires them to exist even when disabled.
       accountLockout: { enabled: false },
     }),
-    admin(), // create, list, ban, impersonate
+    // create, list, ban, impersonate. plan/03-authorisation.md §7 caps an
+    // impersonated session at 30 minutes; this sets the `expires_at` the
+    // plugin stamps on the session it creates (verified against
+    // node_modules/better-auth/dist/plugins/admin/routes.mjs, whose
+    // `impersonateUser` reads `impersonationSessionDuration` and otherwise
+    // defaults to 3600 seconds — an hour, twice what the plan allows).
+    //
+    // Not the only enforcement, and deliberately not: lib/server/auth/session.ts
+    // re-checks the 30 minutes against `session.created_at` on every request.
+    // A cap that lives only in the row's `expires_at` is a cap that a bad
+    // `expires_at` silently removes, and the read-side check costs nothing
+    // since that function already loads the row.
+    admin({ impersonationSessionDuration: 30 * 60 }),
     // Must be last: node_modules/better-auth/dist/integrations/next-js.mjs's
     // `nextCookies()` reads `set-cookie` off the internal response of
     // whatever ran before it and replays it through next/headers' cookies()

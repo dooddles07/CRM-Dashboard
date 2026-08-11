@@ -257,18 +257,57 @@ Without those four, impersonation is a hole large enough to make the rest of thi
 
 ## 8. Done when
 
-- [ ] `/admin/roles` renders from `lib/server/authz/matrix.ts`, not a local array
-- [ ] A Nurse in Pediatrics reading `/patients` sees exactly the Pediatrics rows
-- [ ] The same Nurse requesting a Cardiology patient by reference gets 404, not 403 — out of scope
-      is indistinguishable from not existing
-- [ ] Marketing attempting a reveal gets `REVEAL_NOT_PERMITTED`
-- [ ] Billing attempting a reveal gets `REVEAL_NOT_PERMITTED`
-- [ ] Receptionist can reveal, and the entry lands in the audit log
-- [ ] Exporting contact columns without `reveal` is refused
-- [ ] Exported rows consume the reveal budget
-- [ ] `careflow_app` cannot `UPDATE` or `DELETE` from `audit_log`, verified by attempting it
-- [ ] `FORCE ROW LEVEL SECURITY` is set on every patient-scoped table
-- [ ] The policy test suite asserts exact row counts for all nine roles
-- [ ] A query issued outside `withSession` fails rather than returning unscoped rows
-- [ ] Impersonation writes start and end entries and cannot reveal
-- [ ] `/me` returns a permission set, and the rail hides what the caller lacks
+Three states, because "written" and "verified" are not the same thing and no database was
+available while this phase was built:
+
+- **[x]** done and verified by something that ran
+- **[~]** written, and verified only as far as it can be without a live database
+- **[ ]** not done
+
+<!-- -->
+
+- [x] `/admin/roles` renders from `lib/server/authz/matrix.ts`, not a local array
+- [~] A Nurse in Pediatrics reading `/patients` sees exactly the Pediatrics rows — the policy is
+      written and `scripts/policy-tests.ts` asserts it, deriving the count from the seed fixtures.
+      Note the plan's own worked example in §5.3 says 4; the seed has **3** patients in Pediatrics
+- [~] The same Nurse requesting a Cardiology patient by reference gets 404, not 403 — RLS returns
+      no row, which is the hard half. Turning "no row" into a 404 envelope is Phase 05's `handle`
+- [x] Marketing attempting a reveal gets `REVEAL_NOT_PERMITTED`
+- [x] Billing attempting a reveal gets `REVEAL_NOT_PERMITTED`
+- [~] Receptionist can reveal — the capability check passes. "And the entry lands in the audit log"
+      needs Phase 04's reveal transaction, which is what writes it
+- [x] Exporting contact columns without `reveal` is refused
+- [ ] Exported rows consume the reveal budget — Phase 04. `canExport` refuses what must never
+      start; the budget is a transaction, not a predicate
+- [~] `careflow_app` cannot `UPDATE` or `DELETE` from `audit_log`, verified by attempting it —
+      `scripts/policy-tests.ts` attempts exactly that, against the parent *and* every partition.
+      `drizzle/manual/0005_grants.sql` had revoked on the parent only, so `DELETE FROM
+      audit_log_2026q3` worked; `0007` closes it
+- [x] `FORCE ROW LEVEL SECURITY` is set on every patient-scoped table — asserted by
+      `lib/server/authz/matrix.test.ts`, which fails if any table is `ENABLE`d without `FORCE`
+- [~] The policy test suite asserts exact row counts for all nine roles — written; needs a seeded
+      database and `npm run test:policies` to have run
+- [~] A query issued outside `withSession` fails rather than returning unscoped rows — the
+      `app_role()` accessor raises rather than returning NULL, so this is a real error and not an
+      empty result. §5.1 was not enough on its own: a pooled connection that has already served one
+      session reads the GUC back as `''`, not as unset
+- [~] Impersonation writes start and end entries and cannot reveal — the reveal block is unit
+      tested; the entries and the 30-minute cap need a live session to exercise
+- [~] `/me` returns a permission set, and the rail hides what the caller lacks — the permission set
+      is resolved and the rail, palette and mobile drawer filter against it. The HTTP `GET /me` is
+      deliberately left to Phase 05, which owns `/api/v1` and its envelope; `permissionSet()` is
+      the shape that route will serve
+
+### Deliberately deferred, with reasons
+
+- `outbound_messages`, `message_events`, `campaign_recipients` get no RLS. `outbound_messages`
+  carries encrypted patient contact details, so this is the gap that matters. It cannot close
+  yet: `lib/server/comms/sandbox.ts` writes there during password reset and invitation delivery,
+  both unauthenticated, and Phase 07's queue workers will too. Closing it needs a declared service
+  context, which belongs with Phase 07.
+- The matrix has no area for Engagement or Experience. `conversations`, `messages`, `complaints`
+  and `feedback` take the `patients` area, which withholds writes from Receptionist, Marketing and
+  Billing. If Phase 06 finds a screen that needs one of those three to write there, widen it in
+  `drizzle/manual/0007_row_level_security.sql` §4 deliberately.
+- `staff.role` stayed TEXT with a CHECK constraint rather than becoming a `pgEnum`. Reasoning in
+  that migration's §1.

@@ -20,7 +20,8 @@ import {
   CommandSeparator,
   CommandShortcut,
 } from "@/components/ui/command";
-import { navigation } from "@/lib/nav";
+import { visibleNavigation } from "@/lib/nav";
+import type { PermissionSet } from "@/lib/server/authz/policy";
 import { useCareflow } from "@/lib/store";
 import { doctors } from "@/lib/data/people";
 import { departmentName } from "@/lib/data/constants";
@@ -36,7 +37,16 @@ const quickActions = [
   { label: "Send message", href: "/inbox?compose=1", icon: Send, shortcut: "M" },
 ];
 
-export function CommandPalette() {
+/**
+ * plan/03-authorisation.md §3.1 names the command palette alongside the rail
+ * as a surface that filters against the caller's permission set. The "Go to"
+ * groups below do; the patient and doctor results deliberately do not, since
+ * those still come from `lib/data` rather than from a scoped query — Phase
+ * 06 is where they start coming from the database and inherit row-level
+ * security for free. Until then this palette can offer a patient the caller
+ * would not be able to open, which is a Phase 06 defect, not a Phase 03 one.
+ */
+export function CommandPalette({ permissions }: { permissions: PermissionSet }) {
   const router = useRouter();
   const open = useCareflow((s) => s.commandOpen);
   const setOpen = useCareflow((s) => s.setCommandOpen);
@@ -125,7 +135,7 @@ export function CommandPalette() {
 
         <CommandSeparator />
 
-        {navigation.map((section, i) => (
+        {visibleNavigation(permissions).map((section, i) => (
           <CommandGroup key={section.label ?? i} heading={section.label ?? "Go to"}>
             {section.items.map((item) => (
               <CommandItem

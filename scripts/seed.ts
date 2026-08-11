@@ -80,11 +80,28 @@ if (!PII_KEY) {
 
 // §1.1: migrations and the seed use the unpooled URL; everything else uses
 // the pooled one. This is a separate connection from the app's `db` export.
-const DATABASE_URL_UNPOOLED = process.env.DATABASE_URL_UNPOOLED;
-if (!DATABASE_URL_UNPOOLED) {
-  throw new Error("seed: DATABASE_URL_UNPOOLED is not set.");
+//
+// As of Phase 03 it must also be the *owner's* unpooled URL, not
+// careflow_app's. drizzle/manual/0007_row_level_security.sql turns on FORCE
+// ROW LEVEL SECURITY across every patient-scoped table, and the seed cannot
+// satisfy those policies: it writes per-staff rows (notifications,
+// conversation_reads) for twelve different people, and no single session
+// context is all twelve at once. careflow_owner has an explicit permissive
+// policy for exactly this — see that migration's §7.5.
+//
+// Falls back to DATABASE_URL_UNPOOLED so a pre-Phase-03 database (or a local
+// branch where both URLs are the same role) still seeds; if that URL is
+// careflow_app against a database with the policies applied, the first
+// INSERT fails with a row-level-security violation rather than writing
+// something half-scoped.
+const SEED_URL = process.env.CAREFLOW_OWNER_URL_UNPOOLED ?? process.env.DATABASE_URL_UNPOOLED;
+if (!SEED_URL) {
+  throw new Error(
+    "seed: neither CAREFLOW_OWNER_URL_UNPOOLED nor DATABASE_URL_UNPOOLED is set. " +
+      "Since Phase 03 the seed needs careflow_owner credentials — see drizzle/manual/README.md.",
+  );
 }
-const db = createDb(DATABASE_URL_UNPOOLED);
+const db = createDb(SEED_URL);
 
 /* -------------------------------------------------------------------------- */
 /* The demo clock, re-anchored to this run                                    */

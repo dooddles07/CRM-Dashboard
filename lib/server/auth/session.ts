@@ -5,9 +5,13 @@ import { auth } from "./index";
 import { db } from "@/lib/server/db";
 import { session as sessionTable } from "@/lib/server/db/schema/auth";
 import { staff } from "@/lib/server/db/schema/people";
+import { authzSession, type AuthzSession } from "@/lib/server/authz/policy";
 
 /** plan/02-authentication.md §4: "Idle timeout | 30 minutes". */
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+
+/** plan/03-authorisation.md §7: impersonation "caps the session at 30 minutes". */
+const IMPERSONATION_MAX_MS = 30 * 60 * 1000;
 
 export type StaffRow = typeof staff.$inferSelect;
 
@@ -23,6 +27,17 @@ export interface AuthedSession {
   user: NonNullable<Awaited<ReturnType<typeof auth.api.getSession>>>["user"];
   session: NonNullable<Awaited<ReturnType<typeof auth.api.getSession>>>["session"];
   staff: StaffRow;
+  /**
+   * Phase 03. The four fields every authorisation decision is made about,
+   * with `staff.role`'s TEXT already narrowed to one of the nine roles.
+   *
+   * Resolved here rather than by each caller so that no consumer can build
+   * one incorrectly — in particular, `impersonated` is read from the
+   * `session` row's `impersonated_by` column, which a caller holding only a
+   * `staff` row could not know about, and which plan §7 makes decisive for
+   * whether this session may reveal PII.
+   */
+  authz: AuthzSession;
 }
 
 /**
@@ -96,7 +111,7 @@ export async function resolveSession(headers: Headers): Promise<AuthedSession | 
   if (!user.twoFactorEnabled) return null;
 
   const [sessionRow] = await db
-    .select({ lastSeenAt: sessionTable.lastSeenAt })
+    .select({ lastSeenAt: sessionTable.lastSeenAt, impersonatedBy: sessionTable.impersonatedBy })
     .from(sessionTable)
     .where(eq(sessionTable.id, session.id))
     .limit(1);
@@ -108,11 +123,33 @@ export async function resolveSession(headers: Headers): Promise<AuthedSession | 
   const [staffRow] = await db.select().from(staff).where(eq(staff.userId, user.id)).limit(1);
   if (!staffRow) return null;
 
+  // plan/03-authorisation.md §7: an impersonated session is capped at 30
+  // minutes regardless of the 12-hour absolute ceiling everything else
+  // runs under. Enforced here, on the read path, for the same reason the
+  // idle timeout is: it is the one check every consumer goes through.
+  if (sessionRow.impersonatedBy) {
+    const startedAt = session.createdAt?.getTime() ?? 0;
+    if (Date.now() - startedAt > IMPERSONATION_MAX_MS) return null;
+  }
+
   // Only reached once every check above has passed — a rejected request
   // must not look "seen" for the next idle-timeout calculation.
   await db.update(sessionTable).set({ lastSeenAt: new Date() }).where(eq(sessionTable.id, session.id));
 
-  return { user, session, staff: staffRow };
+  // Throws UnknownRoleError if `staff.role` is not one of the nine. That is
+  // deliberate and deliberately loud: the database refuses to store any
+  // other value (`staff_role_known`, drizzle/manual/0007_row_level_security.sql
+  // §1), so reaching this line with a bad role means the constraint and
+  // lib/server/authz/matrix.ts have diverged — a bug that must not degrade
+  // into a quietly under-privileged session. See policy.ts's `authzSession`.
+  const authz = authzSession({
+    staffId: staffRow.id,
+    role: staffRow.role,
+    departmentId: staffRow.departmentId,
+    impersonated: Boolean(sessionRow.impersonatedBy),
+  });
+
+  return { user, session, staff: staffRow, authz };
 }
 
 /**

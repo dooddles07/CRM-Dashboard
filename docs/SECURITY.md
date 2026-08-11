@@ -134,8 +134,14 @@ Archiving a patient opens a dialog stating what survives:
 
 ### 2.7 Dependency posture
 
-No runtime dependency reaches the network. Charts, tables, drag, and the workflow canvas all run
-locally. Nothing phones home, and no analytics or error-reporting SDK is installed.
+No **client** dependency reaches the network. Charts, tables, drag, and the workflow canvas all run
+locally. Nothing phones home, and no analytics or error-reporting SDK is installed — error
+tracking is a structured log and an `error_log` table, deliberately, rather than a hosted tracker.
+
+Two server dependencies do reach the network, and this section used to claim otherwise: the Neon
+Postgres driver, and the message provider behind the outbound queue. Both are outbound-only, both
+are reached from server code exclusively, and neither carries anything to a third party that is
+not already the point of the call.
 
 Fonts are self-hosted through `next/font`, so no request leaves for a font CDN.
 
@@ -162,14 +168,49 @@ Progressive lockout on failed attempts, per account and per IP.
 
 ### 3.2 Authorisation
 
-The nine-role matrix at `/admin/roles` must be enforced twice: once in the API, once in the
-database.
+**Built.** The nine-role matrix at `/admin/roles` is enforced twice: once in the application, once
+in the database. The two halves answer different questions, and neither substitutes for the other.
 
-API checks run on every request, never derived from client claims. Row-level security policies
-scope a nurse to their department whether the query arrives from the UI or a stolen token. The
-schema in [DATABASE.md](DATABASE.md#28-row-level-security) sketches this.
+`lib/server/authz/matrix.ts` holds the matrix as data — nine roles across seven areas, the three
+capabilities the grid cannot express (`reveal`, `export`, `audit:read`), and which roles see every
+department. It is the only copy. `/admin/roles` renders from it, so the screen and the enforcement
+cannot disagree.
 
-UI hiding stays as a courtesy. A hidden button is not an access control.
+`lib/server/authz/policy.ts` answers *may this role perform this kind of operation at all*.
+`can`, `holds`, and `assert` read the matrix; `assert` throws a typed `ForbiddenError` carrying the
+area, level, and role, which becomes the error envelope in [API.md](API.md#error-response) rather
+than a generic 403. Denials log at `warn`.
+
+Row-level security answers *on which rows*. Every query runs inside `withSession()`
+(`lib/server/db/session.ts`), which opens a transaction and declares the caller with three
+transaction-local `set_config` settings before reading anything; the policies in
+`drizzle/manual/0007_row_level_security.sql` read them back. A query issued outside that helper
+does not return unscoped rows and does not return zero rows either — it raises, because the
+accessor functions raise on missing context rather than returning NULL. Zero rows is the dangerous
+answer: it looks like a data problem rather than a permissions bug.
+
+`FORCE ROW LEVEL SECURITY` is set wherever RLS is enabled, so the table owner is subject to the
+policies too. The one identity that bypasses them, `careflow_owner`, does so through an explicit
+per-table policy rather than implicitly — it runs migrations and the seed, which writes per-staff
+rows for twelve different people and satisfies no single session context.
+
+Two capabilities are sharper than the grid. `reveal` is withheld from Marketing and Billing even
+though both hold `patients: view`, because both work on aggregates and neither needs an individual
+contact detail. `export` is a bulk reveal: it requires `view` on the area **and** the capability,
+and exporting contact columns requires `reveal` as well.
+
+Impersonation is restricted to Super Admin, audited at both ends, capped at 30 minutes, and cannot
+reveal PII regardless of the impersonated role. Entries written during an impersonated session
+carry the true actor in `audit_log.impersonated_by` alongside the impersonated one in `actor_id`.
+
+UI hiding stays as a courtesy. A hidden button is not an access control. The rail, command palette,
+and mobile drawer filter against the caller's permission set so a Nurse is not shown a Settings
+link that 403s; nothing on the server reads that permission set back.
+
+Not yet covered: `outbound_messages`, `message_events`, and `campaign_recipients` have no row-level
+security. `outbound_messages` carries encrypted patient contact details, so this is a real gap. It
+needs a declared service context first — password reset, invitation delivery, and the queue workers
+all write there with no session by nature — which arrives with the messaging pipeline.
 
 ### 3.3 PII handling
 

@@ -126,9 +126,9 @@ Update as phases land.
 | Phase | Status |
 |---|---|
 | 00 Audit | Complete |
-| 01 Foundation | Complete — not yet merged to `main` |
-| 02 Authentication | Not started |
-| 03 Authorisation | Not started |
+| 01 Foundation | Complete |
+| 02 Authentication | Complete |
+| 03 Authorisation | Complete in code — `drizzle/manual/0007`, `0008` not yet applied to a database, and `npm run test:policies` has not been run |
 | 04 Service layer | Not started |
 | 05 HTTP API | Not started |
 | 06 Screen migration | Not started |

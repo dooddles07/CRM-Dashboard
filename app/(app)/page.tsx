@@ -22,7 +22,7 @@ import {
 } from "@/components/dashboard/todays-operations";
 import { Button } from "@/components/ui/button";
 import { kpis, satisfaction } from "@/lib/data/analytics";
-import { CURRENT_USER } from "@/lib/data/constants";
+import { useViewer } from "@/components/shell/viewer-context";
 import { formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -35,11 +35,12 @@ const scopes = [
 
 export default function DashboardPage() {
   const [scope, setScope] = useState<(typeof scopes)[number]["id"]>("today");
+  const viewer = useViewer();
 
   return (
     <div className="mx-auto max-w-[100rem]">
       <PageHeader
-        title={`Good morning, ${CURRENT_USER.name.split(" ")[0]}`}
+        title={`Good morning, ${viewer.name.split(" ")[0]}`}
         description="Here's what's happening across your hospital today."
         actions={
           <>
