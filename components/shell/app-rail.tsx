@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { PanelLeft, PanelLeftClose } from "lucide-react";
-import { navigation, isActive, type NavItem } from "@/lib/nav";
+import { isActive, visibleNavigation, type NavItem } from "@/lib/nav";
+import type { PermissionSet } from "@/lib/server/authz/policy";
 import { useCareflow } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Logo, Wordmark } from "./logo";
@@ -81,14 +82,20 @@ function RailLink({
 }
 
 export function RailContent({
+  permissions,
   collapsed = false,
   onNavigate,
 }: {
+  permissions: PermissionSet;
   collapsed?: boolean;
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
   const toggleRail = useCareflow((s) => s.toggleRail);
+  // plan/03-authorisation.md §3.1: "That prevents a Nurse being shown a
+  // Settings link that 403s." A courtesy, not a control — the route itself
+  // still checks, and a section that empties out disappears with it.
+  const sections = visibleNavigation(permissions);
 
   return (
     <div className="flex h-full flex-col border-r border-rail-line bg-rail">
@@ -106,7 +113,7 @@ export function RailContent({
         aria-label="Main"
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-3"
       >
-        {navigation.map((section, i) => (
+        {sections.map((section, i) => (
           <div key={section.label ?? i} className={i > 0 ? "mt-4" : undefined}>
             {section.label &&
               (collapsed ? (
@@ -164,7 +171,7 @@ export function RailContent({
   );
 }
 
-export function AppRail() {
+export function AppRail({ permissions }: { permissions: PermissionSet }) {
   const collapsed = useCareflow((s) => s.railCollapsed);
 
   return (
@@ -174,7 +181,7 @@ export function AppRail() {
         collapsed ? "w-[3.75rem]" : "w-60",
       )}
     >
-      <RailContent collapsed={collapsed} />
+      <RailContent permissions={permissions} collapsed={collapsed} />
     </aside>
   );
 }

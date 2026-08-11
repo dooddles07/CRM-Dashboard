@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import {
   Bell,
@@ -24,7 +25,9 @@ import {
   UserPlus,
   Waypoints,
 } from "lucide-react";
-import { CURRENT_USER, HOSPITAL } from "@/lib/data/constants";
+import { HOSPITAL } from "@/lib/data/constants";
+import { signOutAction } from "@/lib/server/auth/actions";
+import type { Viewer } from "@/lib/server/authz/viewer";
 import { useIsClient } from "@/lib/hooks";
 import { useCareflow, useUnreadCount } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -95,12 +98,34 @@ function ThemeMenu() {
   );
 }
 
-export function TopBar() {
+export function TopBar({ viewer }: { viewer: Viewer }) {
+  const router = useRouter();
   const setCommandOpen = useCareflow((s) => s.setCommandOpen);
   const setNotificationsOpen = useCareflow((s) => s.setNotificationsOpen);
   const unread = useUnreadCount();
   const shortcut = useShortcutKey();
   const [mobileNav, setMobileNav] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+
+  /**
+   * plan/02-authentication.md §8: "Sign-out becomes real." It used to be a
+   * link to /login, which left the session row alive — closing the tab and
+   * reopening it would have walked straight back in. `signOutAction` deletes
+   * the row server-side and writes the audit entry.
+   *
+   * `router.refresh()` after the push clears the RSC cache holding the
+   * signed-in shell, so the back button lands on a re-rendered /login rather
+   * than a cached dashboard.
+   */
+  async function handleSignOut() {
+    setSigningOut(true);
+    try {
+      await signOutAction();
+    } finally {
+      router.push("/login");
+      router.refresh();
+    }
+  }
 
   return (
     <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b border-line bg-surface/95 px-3 backdrop-blur-sm sm:px-4">
@@ -117,7 +142,7 @@ export function TopBar() {
         </SheetTrigger>
         <SheetContent side="left" className="w-64 border-rail-line bg-rail p-0">
           <SheetTitle className="sr-only">Navigation</SheetTitle>
-          <RailContent onNavigate={() => setMobileNav(false)} />
+          <RailContent permissions={viewer.permissions} onNavigate={() => setMobileNav(false)} />
         </SheetContent>
       </Sheet>
 
@@ -190,10 +215,10 @@ export function TopBar() {
             >
               <span className="relative">
                 <PersonAvatar
-                  name={CURRENT_USER.name}
-                  id={CURRENT_USER.id}
+                  name={viewer.name}
+                  id={viewer.staffId}
                   size="sm"
-                  initials={CURRENT_USER.initials}
+                  initials={viewer.initials}
                 />
                 <span
                   aria-hidden
@@ -205,23 +230,34 @@ export function TopBar() {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-60">
             <DropdownMenuLabel className="font-normal">
-              <p className="text-body-sm font-semibold text-ink">{CURRENT_USER.name}</p>
+              <p className="text-body-sm font-semibold text-ink">{viewer.name}</p>
               <p className="mt-0.5 text-caption text-ink-3">
-                {CURRENT_USER.role} · {HOSPITAL.shortName}
+                {viewer.role} · {HOSPITAL.shortName}
               </p>
-              <p className="mt-1 flex items-center gap-1.5 text-caption text-success">
-                <span aria-hidden className="size-1.5 rounded-full bg-success-solid" />
-                Online
-              </p>
+              {viewer.impersonated ? (
+                // plan/03-authorisation.md §7. Impersonation is audited at
+                // both ends and capped at 30 minutes, but the person doing
+                // it should also never be in any doubt that they are doing
+                // it — every write from here is attributed to someone else.
+                <p className="mt-1 flex items-center gap-1.5 text-caption text-warning">
+                  <span aria-hidden className="size-1.5 rounded-full bg-warning-solid" />
+                  Acting as this user · reveal disabled
+                </p>
+              ) : (
+                <p className="mt-1 flex items-center gap-1.5 text-caption text-success">
+                  <span aria-hidden className="size-1.5 rounded-full bg-success-solid" />
+                  Online
+                </p>
+              )}
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
               <Link href="/profile">
                 <PersonAvatar
-                  name={CURRENT_USER.name}
-                  id={CURRENT_USER.id}
+                  name={viewer.name}
+                  id={viewer.staffId}
                   size="xs"
-                  initials={CURRENT_USER.initials}
+                  initials={viewer.initials}
                 />
                 Profile & preferences
               </Link>
@@ -239,11 +275,17 @@ export function TopBar() {
               </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem asChild>
-              <Link href="/login">
-                <LogOut className="size-4" strokeWidth={1.9} />
-                Sign out
-              </Link>
+            <DropdownMenuItem
+              disabled={signingOut}
+              onSelect={(event) => {
+                // Keep the menu open long enough for the action to fire; the
+                // navigation below is what closes it.
+                event.preventDefault();
+                void handleSignOut();
+              }}
+            >
+              <LogOut className="size-4" strokeWidth={1.9} />
+              {signingOut ? "Signing out…" : "Sign out"}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
