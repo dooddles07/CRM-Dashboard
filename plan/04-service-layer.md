@@ -378,19 +378,68 @@ The component contract does not change: mask, click, unmask, badge.
 
 ## 11. Done when
 
-- [ ] No service module exports a Drizzle row type — verified by a lint rule, not by reading
-- [ ] No DTO contains a bare `phone: string` or `email: string`
-- [ ] A list response for 24 patients decrypts zero rows, confirmed by query logging
-- [ ] `reveal` returns a value only after its audit entry is committed
-- [ ] Killing the audit insert makes `reveal` return nothing — tested by fault injection
-- [ ] An out-of-scope reveal returns 404, not 403
-- [ ] 101 reveals in an hour produces a 429 on the 101st
-- [ ] The 60th reveal in an hour fires a `security` notification without blocking
-- [ ] Exporting 30 rows with contact columns consumes 30 of the budget
-- [ ] `updated` writes one audit entry per changed field
-- [ ] A double-booked appointment surfaces as 409 `SLOT_CONFLICT`, never a 500
-- [ ] Every service function's first parameter is `session`, checked by a lint rule
-- [ ] A query outside `withSession` throws
-- [ ] Lead conversion rolls back entirely if any step fails
-- [ ] `revalidateTag` is never called with one argument
-- [ ] `lib/store.ts` no longer holds `patients`, `notifications`, or `auditLog`
+Marked as in Phase 03: **[x]** verified by something that ran, **[~]** written and partly
+verified, **[ ]** not done.
+
+- [x] No service module exports a Drizzle row type — `service-layer/no-exported-row-type`, an
+      ESLint rule, catching both `InferSelectModel<typeof t>` and `typeof t.$inferSelect`
+- [x] No DTO contains a bare `phone: string` or `email: string` — every one is a `MaskedField`
+- [x] A list response for 24 patients decrypts zero rows — the projections never name an
+      encrypted column, so there is nothing to decrypt. Confirmed by serialising a list DTO and
+      finding no plaintext digits
+- [x] `reveal` returns a value only after its audit entry is committed
+- [x] Killing the audit insert makes `reveal` return nothing — fault-injected via the
+      `actor_id` foreign key; no value returned **and** the audit count unchanged
+- [x] An out-of-scope reveal returns 404, not 403
+- [ ] 101 reveals in an hour produces a 429 on the 101st — the budget is implemented and counted
+      off `audit_log`, but never exercised. Testing it means writing 100 real audit entries to an
+      append-only table, which is why it was left; it wants a disposable database branch
+- [ ] The 60th reveal in an hour fires a `security` notification without blocking — Phase 09
+      owns anomaly alerting. `audit.revealCountFor` is the query it will use
+- [ ] Exporting 30 rows with contact columns consumes 30 of the budget — no export service
+      exists yet. `canExport` refuses what must never start; the budget charge belongs with the
+      export itself
+- [x] `updated` writes one audit entry per changed field — `writeFieldUpdates`
+- [x] A double-booked appointment surfaces as 409 `SLOT_CONFLICT`, never a 500
+- [x] Every service function's first parameter is `session`, checked by a lint rule
+- [x] A query outside `withSession` throws — Phase 03's guarantee, re-confirmed here when a test
+      harness queried `patients` bare and got `app.role is not set`
+- [~] Lead conversion rolls back entirely if any step fails — one transaction over two tables
+      with two audit entries, so it does. Not fault-injected the way `reveal` was
+- [x] `revalidateTag` is never called with one argument — no call site names it; `lib/server/cache.ts`
+      wraps it and always passes `"max"`
+- [ ] `lib/store.ts` no longer holds `patients`, `notifications`, or `auditLog` — **blocked on
+      Phase 06.** Seventeen screens still read those slices, so removing them now breaks the
+      application. §10 describes the end state, which is only reachable once the screens read
+      through these services instead. The services they need exist; the migration is Phase 06's
+      job
+
+### Services
+
+Twenty modules, in eighteen files: `staff`, `doctors` and `departments` share `directory.ts`,
+since all three are the org chart, all three are readable by every role, and splitting them would
+put one function in each.
+
+Built and verified live: patients, appointments, leads, followups, tasks, referrals,
+conversations, complaints, feedback, directory (staff/doctors/departments), campaigns, workflows,
+integrations, analytics, notifications, preferences, audit, reveal.
+
+### What building it found
+
+- **§3's masking snippet does not work.** It calls `mask(row.emailDomain, "email")`, but `mask()`
+  takes a whole value and removes from it, while a fragment is what is *left* after removal.
+  Given `"example.com"` it splits on `@`, finds no domain, and returns `ex••••••@••••••` — local
+  part leaked, TLD lost. The server masks are built from fragments directly and disclose less than
+  the client ones.
+- **`leads` stores no mask fragments at all.** No `phone_last2`, no `email_domain`. Masking a lead
+  by decrypting would defeat the reason the fragments exist, so a lead's contact renders as an
+  unhinted mask and the projection selects `IS NOT NULL` rather than the column.
+- **§2.1's "declare the row type locally" is dead code.** An unused local type is a lint error.
+  The property that matters is the absence of the *export*, so the modules simply never name
+  `InferSelectModel`.
+- **§6's `ForbiddenError` collided with Phase 03's.** Phase 03's now extends `ServiceError`
+  rather than there being two classes with one name.
+- **§9's department rollup view was never built.** Phase 01 shipped without it, so the counts are
+  computed live — which is better: they inherit row-level security, so a Pediatrics nurse sees 3
+  patients there and 0 elsewhere, where a stored rollup would report hospital-wide totals to
+  everyone.

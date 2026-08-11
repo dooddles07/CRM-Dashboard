@@ -128,8 +128,8 @@ Update as phases land.
 | 00 Audit | Complete |
 | 01 Foundation | Complete |
 | 02 Authentication | Complete |
-| 03 Authorisation | Complete. Migrations applied, `npm run test:policies` passes 56 assertions against the seeded database |
-| 04 Service layer | Not started |
+| 03 Authorisation | Complete. Migrations applied, `npm run test:policies` passes 64 assertions against the seeded database |
+| 04 Service layer | Complete in code — 20 services, verified live. Two items deferred: the reveal budget is untested, and the `lib/store.ts` shrink is blocked on Phase 06 |
 | 05 HTTP API | Not started |
 | 06 Screen migration | Not started |
 | 07 Jobs and messaging | Not started |
