@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import type { Channel, Conversation, Message } from "@/lib/types";
 import { conversations } from "@/lib/data/patient-record";
 import { patientById, staffName } from "@/lib/data/people";
-import { CURRENT_USER } from "@/lib/data/constants";
+import { useViewer } from "@/components/shell/viewer-context";
 import { relativeTime, formatTime } from "@/lib/format";
 import { PersonAvatar } from "@/components/healthcare/person-avatar";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,7 @@ const channelIcon: Record<Channel, typeof MessageSquare> = {
 };
 
 export function InboxView() {
+  const viewer = useViewer();
   const sorted = useMemo(
     () => conversations.slice().sort((a, b) => (a.lastMessageAt < b.lastMessageAt ? 1 : -1)),
     [],
@@ -56,7 +57,7 @@ export function InboxView() {
       channel: active.channel,
       body: draft.trim(),
       sentAt: new Date().toISOString(),
-      authorId: CURRENT_USER.id,
+      authorId: viewer.staffId,
       internal,
     };
     setExtra((e) => ({ ...e, [active.id]: [...(e[active.id] ?? []), msg] }));

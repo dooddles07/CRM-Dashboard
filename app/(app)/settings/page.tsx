@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { Building2, Check, Rows2, Rows3 } from "lucide-react";
 import { toast } from "sonner";
-import { CURRENT_USER, HOSPITAL } from "@/lib/data/constants";
+import { HOSPITAL } from "@/lib/data/constants";
+import { useViewer } from "@/components/shell/viewer-context";
 import { useCareflow } from "@/lib/store";
 import { PageHeader } from "@/components/data/page-header";
 import { Panel, PanelBody, PanelHeader } from "@/components/data/panel";
@@ -24,6 +25,7 @@ const notificationCategories = [
 ];
 
 export default function SettingsPage() {
+  const viewer = useViewer();
   const density = useCareflow((s) => s.density);
   const setDensity = useCareflow((s) => s.setDensity);
   const [notifs, setNotifs] = useState<Record<string, boolean>>(() =>
@@ -48,13 +50,16 @@ export default function SettingsPage() {
             <PanelBody className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Full name" htmlFor="st-name">
-                  <Input id="st-name" defaultValue={CURRENT_USER.name} />
+                  <Input id="st-name" defaultValue={viewer.name} />
                 </Field>
                 <Field label="Email" htmlFor="st-email">
-                  <Input id="st-email" type="email" defaultValue={CURRENT_USER.email} />
+                  <Input id="st-email" type="email" defaultValue={viewer.email} />
                 </Field>
+                {/* Role is not editable from here and never will be: changing
+                    it changes what row-level security lets this person see,
+                    so it belongs to /admin/users under the `users` area. */}
                 <Field label="Role" htmlFor="st-role">
-                  <Input id="st-role" defaultValue={CURRENT_USER.role} disabled />
+                  <Input id="st-role" defaultValue={viewer.role} disabled />
                 </Field>
                 <Field label="Phone" htmlFor="st-phone">
                   <Input id="st-phone" placeholder="+63 ..." />

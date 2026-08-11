@@ -2,7 +2,6 @@
 
 import { create } from "zustand";
 import type { AppNotification, AuditEntry, Patient } from "@/lib/types";
-import { CURRENT_USER } from "@/lib/data/constants";
 import { patients as seedPatients } from "@/lib/data/people";
 import { notifications as seedNotifications, seedAudit } from "@/lib/data/system";
 
@@ -12,7 +11,29 @@ export interface RevealRequest {
   field: string;
 }
 
+/**
+ * Who this store attributes its audit entries to. Set once by
+ * `ViewerProvider` (components/shell/viewer-context.tsx) from the session the
+ * app layout resolved, replacing the hardcoded `CURRENT_USER` this store used
+ * to name — which meant every reveal in the demo was recorded against Isabel
+ * Domingo no matter who was signed in, in a product whose whole subject is
+ * the audit trail.
+ *
+ * Still a client-side, in-memory audit log. Phase 04's reveal transaction is
+ * what makes an entry a row in `audit_log`; this only stops the entry naming
+ * the wrong person in the meantime.
+ */
+export interface StoreActor {
+  id: string;
+  name: string;
+}
+
+const UNKNOWN_ACTOR: StoreActor = { id: "unknown", name: "Unknown" };
+
 interface CareflowState {
+  actor: StoreActor;
+  setActor: (actor: StoreActor) => void;
+
   patients: Patient[];
   notifications: AppNotification[];
   auditLog: AuditEntry[];
@@ -50,6 +71,9 @@ const nextAuditId = () => `a-${(auditSeq += 1)}`;
 const SESSION = { ip: "112.198.44.2", device: "Chrome · Windows" };
 
 export const useCareflow = create<CareflowState>((set, get) => ({
+  actor: UNKNOWN_ACTOR,
+  setActor: (actor) => set({ actor }),
+
   patients: seedPatients,
   notifications: seedNotifications,
   auditLog: seedAudit,
@@ -67,8 +91,8 @@ export const useCareflow = create<CareflowState>((set, get) => ({
       auditLog: [
         {
           id: nextAuditId(),
-          actorId: CURRENT_USER.id,
-          actorName: CURRENT_USER.name,
+          actorId: get().actor.id,
+          actorName: get().actor.name,
           action: "revealed",
           resource: req.resource,
           resourceId: req.resourceId,
@@ -91,8 +115,8 @@ export const useCareflow = create<CareflowState>((set, get) => ({
         {
           ...entry,
           id: nextAuditId(),
-          actorId: CURRENT_USER.id,
-          actorName: CURRENT_USER.name,
+          actorId: get().actor.id,
+          actorName: get().actor.name,
           timestamp: new Date().toISOString(),
           ...SESSION,
         },
