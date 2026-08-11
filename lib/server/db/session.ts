@@ -77,11 +77,30 @@ export async function withSession<T>(
   }
 
   return db.transaction(async (tx) => {
-    await tx.execute(sql`
-      SELECT set_config('app.staff_id',      ${session.staffId},          true),
-             set_config('app.role',          ${session.role},             true),
-             set_config('app.department_id', ${session.departmentId ?? ""}, true)
-    `);
+    await applySessionContext(tx, session);
     return fn(tx);
   });
+}
+
+/**
+ * The three `set_config` calls, on their own, against a transaction the
+ * caller already opened.
+ *
+ * Exported for scripts/policy-tests.ts, which has to open its own connection
+ * — it must connect as `careflow_app` specifically, and `db` above is
+ * whatever DATABASE_URL points at. Sharing this function rather than
+ * re-typing the SQL is what makes that suite a test of `withSession` and not
+ * a test of a lookalike that happens to set the same three settings.
+ *
+ * Nothing in the application should call this directly. It performs no
+ * scope check — `withSession` is where UnscopedSessionError is raised — so a
+ * caller reaching past `withSession` to use it gets the context without the
+ * invariant.
+ */
+export async function applySessionContext(tx: Tx, session: AuthzSession): Promise<void> {
+  await tx.execute(sql`
+    SELECT set_config('app.staff_id',      ${session.staffId},          true),
+           set_config('app.role',          ${session.role},             true),
+           set_config('app.department_id', ${session.departmentId ?? ""}, true)
+  `);
 }
