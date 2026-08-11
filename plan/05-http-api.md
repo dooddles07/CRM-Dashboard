@@ -196,15 +196,54 @@ implementation is behind an interface so swapping it later touches one file.
 
 ## 7. Done when
 
-- [ ] Every route in `docs/API.md` §2.2–§2.6 exists and matches its documented shape
-- [ ] No handler contains a database query
-- [ ] No handler contains its own try/catch
-- [ ] An unhandled error returns a reference and logs the detail — the response carries no stack
-- [ ] A list response contains no unmasked contact value, asserted by a test that greps the body
-- [ ] 404 is returned for an out-of-scope record, verified as a Nurse against another department
-- [ ] Cursor pagination works on `/audit` past 10,000 entries
-- [ ] An API token cannot reveal, regardless of the staff member's role
-- [ ] A replayed webhook is a no-op and still returns 200
-- [ ] A webhook with a bad signature is rejected before the body is parsed
-- [ ] `/api/cron/drain` without the bearer secret returns 401
+Marked as in Phases 03 and 04: **[x]** verified by something that ran, **[~]** partly done,
+**[ ]** not done.
+
+- [~] Every route in `docs/API.md` §2.2–§2.6 exists and matches its documented shape — 18 route
+      files covering every resource, plus `/me`, `/me/preferences`, reveal, lead convert, audit
+      export and `/api/health`. All 18 verified 200 with a scoped token. Missing: per-record
+      detail routes for most resources (the list route exists for each), `/patients/{ref}/timeline`,
+      and the document routes
+- [x] No handler contains a database query — every one calls a service
+- [x] No handler contains its own try/catch — `handle` owns error mapping
+- [x] An unhandled error returns a reference and logs the detail — the response carries no stack
+- [x] A list response contains no unmasked contact value, asserted by a test that greps the body —
+      24 patients returned **0** digit runs of 7+ and **0** email addresses
+- [x] 404 is returned for an out-of-scope record — the service cannot distinguish "hidden by RLS"
+      from "absent", verified at the service layer as a Nurse against another department and over
+      HTTP for an unknown reference
+- [~] Cursor pagination works on `/audit` past 10,000 entries — the cursor is `(occurred_at, id)`
+      and pages verifiably do not overlap, but the database holds ~20 entries. Never tested at
+      10,000
+- [x] An API token cannot reveal, regardless of the staff member's role — verified with a token
+      belonging to a Hospital Admin, who can otherwise reveal: 403 `REVEAL_NOT_PERMITTED`
+- [ ] A replayed webhook is a no-op and still returns 200 — no webhook route. Needs a provider
+- [ ] A webhook with a bad signature is rejected before the body is parsed — same
+- [ ] `/api/cron/drain` without the bearer secret returns 401 — needs the queue (Phase 07)
 - [ ] `docs/API.md` Part 2 is rewritten from proposal to description
+
+### Deferred, with reasons
+
+- **Webhooks and `/api/cron/drain`** belong with Phase 07. A signature check needs a provider
+  whose signature scheme is known, and a drain endpoint needs something to drain.
+- **Document upload and download** (§5.1) need Vercel Blob and the magic-byte checks in Phase 08
+  §3.4. Accepting uploads before those controls exist would be the wrong order.
+- **`/patients/{ref}/timeline`** needs `lib/timeline.ts` to run over DTOs rather than seed arrays.
+  That conversion is the same work Phase 06 does for every screen, and doing it here first would
+  mean doing it twice.
+
+### What building it found
+
+- **`handle` JSON-encoded everything**, which would have delivered the audit CSV as a quoted
+  string. It now passes a `NextResponse` straight through.
+- **`audit.list` caps `limit` at 100**, so the export asking for 10,000 in one call would have
+  produced a truncated file that looked complete. It pages through the cursor instead.
+- **CSV injection.** An audit export is the file a security reviewer opens, and `=`, `+`, `-` or
+  `@` at the start of a cell makes a spreadsheet evaluate it. Cells are quoted and dangerous
+  leading characters prefixed.
+- **`drizzle-kit generate` re-emitted two `audit_action` enum values** that
+  `drizzle/manual/0008` had already added with `IF NOT EXISTS`. Unguarded, they fail on every
+  database that has run `0008`; stripped from the generated migration with a comment.
+- **A token session reports `impersonated: true` from `/me`.** That is the mechanism which stops
+  it revealing, reused rather than duplicated, but it means the field reads oddly for a machine
+  caller — `viaToken` is alongside it to say which of the two conditions applies.
