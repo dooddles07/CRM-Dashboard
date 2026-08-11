@@ -133,7 +133,7 @@ async function main() {
     invitedByStaffId: staffId,
   });
 
-  console.log(`provision: created Hospital Admin account for ${email} (staff ${staffId}).`);
+  console.log(`provision: created ${role} account for ${email} (staff ${staffId}).`);
   console.log(`provision: single-use enrolment link (expires ${expiresAt.toISOString()}):`);
   console.log(`  ${link}`);
 }
