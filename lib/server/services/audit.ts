@@ -1,5 +1,6 @@
 import { and, desc, eq, lt, or, sql } from "drizzle-orm";
 import { assertHolds, type AuthzSession } from "@/lib/server/authz/policy";
+import { writeAudit, type AuditContext } from "@/lib/server/audit/write";
 import { withSession } from "@/lib/server/db/session";
 import { auditLog } from "@/lib/server/db/audit-log";
 import { staff } from "@/lib/server/db/schema/people";
@@ -173,6 +174,109 @@ export async function forResource(
 ): Promise<AuditEntryDTO[]> {
   const page = await list(session, { resourceType, resourceId, limit });
   return page.data;
+}
+
+/**
+ * plan/05-http-api.md §5: an export "writes an audit entry about itself
+ * before streaming".
+ *
+ * The entry is written first and in its own transaction, so a failure to
+ * record the export prevents the export. That ordering is the same argument
+ * as the reveal transaction's: the record of a bulk disclosure is worth more
+ * than the disclosure succeeding.
+ *
+ * Returns CSV text rather than rows. An export is a file, and building it
+ * here keeps the escaping in one place — a handler assembling CSV would be
+ * business logic in a route, which plan §2 forbids.
+ *
+ * Capped at 10,000 rows. An unbounded export of an unbounded table is a
+ * memory problem on a free function, and a caller who genuinely needs more
+ * should be paginating `list` instead.
+ */
+export async function exportCsv(
+  session: AuthzSession,
+  context: AuditContext,
+  filters: AuditFilters = {},
+): Promise<string> {
+  assertHolds(session, "audit:read");
+  const limit = Math.min(10_000, Math.max(1, filters.limit ?? 10_000));
+
+  // Written before anything is read, in its own transaction, so it commits
+  // even if the export below fails afterwards — the intent to export is the
+  // fact worth recording.
+  await withSession(session, async (tx) => {
+    await writeAudit(tx, session, context, {
+      action: "exported",
+      resourceType: "audit_log",
+      resourceId: filters.resourceId ?? "all",
+      field: "filters",
+      newValue: JSON.stringify({ ...filters, limit }),
+    });
+  });
+
+  // Paged through the cursor rather than asking `list` for 10,000 at once:
+  // `list` caps `limit` at MAX_LIMIT, so a single call would silently return
+  // 100 rows and produce a truncated export that looked complete.
+  const entries: AuditEntryDTO[] = [];
+  let cursor = filters.cursor;
+  while (entries.length < limit) {
+    const page = await list(session, {
+      ...filters,
+      cursor,
+      limit: Math.min(MAX_LIMIT, limit - entries.length),
+    });
+    entries.push(...page.data);
+    if (!page.nextCursor || page.data.length === 0) break;
+    cursor = page.nextCursor;
+  }
+
+  const header = [
+    "id",
+    "occurred_at",
+    "actor_name",
+    "action",
+    "resource_type",
+    "resource_id",
+    "field",
+    "previous_value",
+    "new_value",
+    "ip_address",
+    "impersonated_by",
+  ];
+
+  const rows = entries.map((entry) =>
+    [
+      entry.id,
+      entry.occurredAt,
+      entry.actorName,
+      entry.action,
+      entry.resourceType,
+      entry.resourceId,
+      entry.field ?? "",
+      entry.previousValue ?? "",
+      entry.newValue ?? "",
+      entry.ipAddress ?? "",
+      entry.impersonatedBy?.name ?? "",
+    ].map(csvCell),
+  );
+
+  return [header.join(","), ...rows.map((row) => row.join(","))].join("\n");
+}
+
+/**
+ * RFC 4180 quoting, plus a leading apostrophe on anything a spreadsheet would
+ * treat as a formula.
+ *
+ * `=`, `+`, `-` and `@` at the start of a cell make Excel and Sheets evaluate
+ * it, which turns an audit export into a CSV injection vector — an attacker
+ * who can get a string into `new_value` can run a formula on the machine of
+ * whoever opens the export. The audit log is exactly the file a security
+ * reviewer opens.
+ */
+function csvCell(value: string): string {
+  const dangerous = /^[=+\-@\t\r]/.test(value);
+  const escaped = (dangerous ? `'${value}` : value).replace(/"/g, '""');
+  return `"${escaped}"`;
 }
 
 /**

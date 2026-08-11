@@ -161,6 +161,11 @@ export async function handle<T>(
     }
 
     const result = await fn(context);
+    // A handler that needs to control the response itself — a file download,
+    // a redirect — returns one. Everything else gets the JSON envelope. Two
+    // shapes rather than one, because `/audit/export` produces a file and
+    // JSON-encoding a CSV string would deliver a quoted blob.
+    if (result instanceof NextResponse) return result;
     return NextResponse.json(result);
   } catch (error) {
     // Zod first: a validation failure is the most common non-success and has
