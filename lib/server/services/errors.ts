@@ -20,7 +20,9 @@
 /** Codes the API contract documents. Phase 05 maps each to a status. */
 export type ServiceErrorCode =
   | "NOT_FOUND"
+  | "UNAUTHORIZED"
   | "FORBIDDEN"
+  | "SCOPE_REQUIRED"
   | "REVEAL_NOT_PERMITTED"
   | "EXPORT_NOT_PERMITTED"
   | "AUDIT_ACCESS_DENIED"
@@ -71,6 +73,33 @@ export class NotFoundError extends ServiceError {
   readonly code = "NOT_FOUND" as const;
   readonly status = 404;
   readonly name = "NotFoundError";
+}
+
+/**
+ * 401. No session, or a token that did not resolve.
+ *
+ * Distinct from `ForbiddenError`, which means "we know who you are and the
+ * answer is no". Collapsing the two would tell an anonymous caller that a
+ * resource exists.
+ *
+ * Unknown, revoked and expired tokens all produce this with the same message,
+ * so a caller probing tokens learns only that theirs did not work.
+ */
+export class UnauthorizedError extends ServiceError {
+  readonly code = "UNAUTHORIZED" as const;
+  readonly status = 401;
+  readonly name = "UnauthorizedError";
+}
+
+/**
+ * 403 for a machine caller whose token lacks the scope. Separate from
+ * `ForbiddenError` because the fix is different: a person needs a role
+ * change, a token needs re-issuing.
+ */
+export class ScopeRequiredError extends ServiceError {
+  readonly code = "SCOPE_REQUIRED" as const;
+  readonly status = 403;
+  readonly name = "ScopeRequiredError";
 }
 
 /** 422. Input failed validation at the boundary. `details` carries the field errors. */
