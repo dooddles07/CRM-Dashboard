@@ -1,7 +1,7 @@
 export * from "./enums";
 export * from "./org";
+export * from "./auth";
 export * from "./people";
-// auth.ts intentionally exports nothing yet — see its header comment.
 export * from "./scheduling";
 export * from "./pipeline";
 export * from "./work";

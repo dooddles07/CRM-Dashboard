@@ -6,6 +6,7 @@ import { ArrowLeft, CircleAlert, Loader2, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { requestPasswordResetAction } from "@/lib/server/auth/actions";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -13,7 +14,7 @@ export default function ForgotPasswordPage() {
   const [pending, setPending] = useState(false);
   const [sent, setSent] = useState(false);
 
-  function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!email.includes("@")) {
       setError("Enter a full email address, including the part after the @.");
@@ -21,10 +22,17 @@ export default function ForgotPasswordPage() {
     }
     setError(null);
     setPending(true);
-    setTimeout(() => {
-      setPending(false);
-      setSent(true);
-    }, 600);
+    // The action's response can't distinguish "sent" from "no such
+    // account" (task-4-brief.md §4) — this branch only ever runs for a
+    // request-shape error (an empty/malformed email slipping past the
+    // check above), never for "account not found".
+    const result = await requestPasswordResetAction({ email });
+    setPending(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    setSent(true);
   }
 
   if (sent) {
@@ -37,7 +45,7 @@ export default function ForgotPasswordPage() {
         <p className="mt-1.5 text-body-sm text-ink-2">
           If <span className="font-medium text-ink">{email}</span> belongs to a
           staff account, a reset link is on its way. The link works once and
-          expires in 30 minutes.
+          expires in 1 hour.
         </p>
         <p className="mt-4 text-body-sm text-ink-3">
           Nothing arrived? Check spam, then ask your hospital administrator to

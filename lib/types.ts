@@ -380,7 +380,9 @@ export type AuditAction =
   | "updated"
   | "deleted"
   | "exported"
-  | "signed-in";
+  | "signed-in"
+  | "signed-out"
+  | "locked";
 
 export interface AuditEntry {
   id: string;

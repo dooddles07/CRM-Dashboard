@@ -245,9 +245,27 @@ async function seedStaff() {
     departmentId: null as string | null, // backfilled below
     emailEncrypted: encryptedRequired(s.email),
     emailDomain: domainOf(s.email)!,
-    status: toDbEnum(s.status),
+    // plan/02-authentication.md §6.3: "The 12 staff in lib/data/people.ts
+    // are seeded as staff rows with status = 'invited' and no user_id ...
+    // None of them can sign in until someone [sends them an invitation]."
+    // Task 3 (task-3-brief.md §3) found this had drifted — this line used
+    // to read `status: toDbEnum(s.status)`, carrying the fixture's own
+    // *demo-display* status (mostly "active", for how the front-end-only
+    // build wants the table to look) straight into the DB column, even
+    // though none of these rows have a user_id/credential and genuinely
+    // cannot sign in. Hardcoded to "invited" here regardless of what the
+    // fixture says, matching what a row with no linked account actually
+    // is. `mfaEnabled` gets the same treatment for the same reason: a row
+    // with no `user_id` has no `two_factor` row either, so `true` here
+    // would be a lie about TOTP enrolment that never happened.
+    // `lastActiveAt` is left as the fixture drives it (existing comment
+    // right below already flags it as a known cosmetic placeholder,
+    // "becomes real once Phase 02 sessions exist" — that's a
+    // session-write-path concern, not a seed-time one, and out of this
+    // task's narrower "status"/"user_id" scope per the brief).
+    status: "invited" as const,
     lastActiveAt: s.lastActive === "never" ? null : new Date(), // "2 minutes ago" etc. has no stable absolute meaning; last sign-in becomes real once Phase 02 sessions exist
-    mfaEnabled: s.mfaEnabled,
+    mfaEnabled: false,
     joinedAt: anchoredDateString(s.joinedAt),
   }));
   const inserted = await db
