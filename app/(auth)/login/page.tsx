@@ -3,21 +3,23 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CircleAlert, Eye, EyeOff, KeyRound, Loader2, ShieldCheck } from "lucide-react";
+import { CircleAlert, Eye, EyeOff, Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { signInAction } from "@/lib/server/auth/actions";
 
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("i.domingo@staurora.example");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [keepSignedIn, setKeepSignedIn] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
-  function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!email.trim()) {
       setError("Enter the email address your hospital account uses.");
@@ -29,7 +31,13 @@ export default function LoginPage() {
     }
     setError(null);
     setPending(true);
-    setTimeout(() => router.push("/mfa"), 600);
+    const result = await signInAction({ email, password, keepSignedIn });
+    if (!result.ok) {
+      setPending(false);
+      setError(result.error);
+      return;
+    }
+    router.push(result.next);
   }
 
   return (
@@ -104,7 +112,7 @@ export default function LoginPage() {
         </div>
 
         <div className="flex items-center gap-2 pt-0.5">
-          <Checkbox id="remember" defaultChecked />
+          <Checkbox id="remember" checked={keepSignedIn} onCheckedChange={(v) => setKeepSignedIn(v === true)} />
           <Label htmlFor="remember" className="font-normal text-ink-2">
             Keep me signed in on this device
           </Label>
@@ -113,19 +121,6 @@ export default function LoginPage() {
         <Button type="submit" className="h-10 w-full" disabled={pending}>
           {pending && <Loader2 className="size-4 animate-spin" aria-hidden />}
           {pending ? "Signing in…" : "Sign in"}
-        </Button>
-
-        <div className="flex items-center gap-3 py-1">
-          <span className="h-px flex-1 bg-line" />
-          <span className="text-caption text-ink-3">or</span>
-          <span className="h-px flex-1 bg-line" />
-        </div>
-
-        <Button type="button" variant="outline" className="h-10 w-full" asChild>
-          <Link href="/mfa">
-            <KeyRound className="size-4" strokeWidth={1.9} />
-            Continue with hospital SSO
-          </Link>
         </Button>
       </form>
 

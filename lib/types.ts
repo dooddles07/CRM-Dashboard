@@ -381,6 +381,7 @@ export type AuditAction =
   | "deleted"
   | "exported"
   | "signed-in"
+  | "signed-out"
   | "locked";
 
 export interface AuditEntry {

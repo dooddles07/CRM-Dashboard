@@ -35,6 +35,35 @@ export const ARGON2_PARAMS = {
 };
 
 /**
+ * plan/02-authentication.md §4.1: "Keep me signed in on this device" extends
+ * the *absolute* session lifetime to 7 days on that device — it must NOT
+ * extend the 30-minute idle timeout (session.ts enforces that separately
+ * and unconditionally). Task 2 flagged that Better Auth's own `rememberMe`
+ * flag does the opposite of what's needed here: verified against
+ * node_modules/better-auth/dist/db/internal-adapter.mjs's `createSession`,
+ * `dontRememberMe` (i.e. `rememberMe: false`) sets a *shorter* fixed 1-day
+ * expiry and a session-only cookie, while the default (`rememberMe: true`)
+ * just uses the configured `session.expiresIn` (12h, above) — neither
+ * option reaches 7 days. Task 4 (login/mfa Server Actions) signals this
+ * per-request via this header on the `auth.api.signInEmail` /
+ * `auth.api.verifyTOTP` call, read back below in
+ * `databaseHooks.session.create.before`.
+ *
+ * A header rather than a body field because the hook only receives the
+ * about-to-be-inserted `session` row plus a `GenericEndpointContext`, not
+ * the original request body — but `context.getHeader()` (better-call's
+ * `EndpointContext`, node_modules/better-call/dist/endpoint.d.mts) reads
+ * whatever `headers` was passed to the originating `auth.api.*` call,
+ * which is the same channel `internalAdapter.createSession` itself already
+ * relies on (via `getCurrentAuthContext()`) to resolve `ipAddress`/
+ * `userAgent` for the row it's building in that same hook cycle — not a
+ * new or unproven mechanism, the exact same one Better Auth's own code
+ * uses one line above where this hook plugs in.
+ */
+export const KEEP_SIGNED_IN_HEADER = "x-careflow-keep-signed-in";
+const KEEP_SIGNED_IN_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
  * plan/02-authentication.md §2. Better Auth's own `user`/`session`/`account`/
  * `verification`/`twoFactor` tables plus the `admin` plugin's fields on
  * `user`/`session` all live in lib/server/db/schema/auth.ts, joined to (not
@@ -126,13 +155,21 @@ export const auth = betterAuth({
   databaseHooks: {
     session: {
       create: {
-        before: async (session) => {
+        before: async (session, context) => {
           const [staffRow] = await db
             .select({ id: schema.staff.id })
             .from(schema.staff)
             .where(eq(schema.staff.userId, session.userId))
             .limit(1);
           if (!staffRow) return false;
+
+          // plan §4.1's 7-day "keep me signed in" override — see
+          // KEEP_SIGNED_IN_HEADER's comment above. Only ever *extends* the
+          // absolute lifetime; the idle timeout this doesn't touch is what
+          // actually locks a shared workstation (session.ts, 30 minutes).
+          if (context?.getHeader(KEEP_SIGNED_IN_HEADER) === "1") {
+            return { data: { expiresAt: new Date(Date.now() + KEEP_SIGNED_IN_MS) } };
+          }
         },
       },
     },

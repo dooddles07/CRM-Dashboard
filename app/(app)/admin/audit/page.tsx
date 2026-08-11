@@ -8,6 +8,7 @@ import {
   FileDown,
   FilePlus2,
   LogIn,
+  LogOut,
   PencilLine,
   ScrollText,
   ShieldAlert,
@@ -41,6 +42,7 @@ const actionMeta: Record<AuditAction, { label: string; tone: Tone; icon: LucideI
   deleted: { label: "Deleted", tone: "danger", icon: Trash2 },
   exported: { label: "Exported", tone: "warning", icon: FileDown },
   "signed-in": { label: "Signed in", tone: "neutral", icon: LogIn },
+  "signed-out": { label: "Signed out", tone: "neutral", icon: LogOut },
   locked: { label: "Locked", tone: "danger", icon: ShieldAlert },
 };
 
