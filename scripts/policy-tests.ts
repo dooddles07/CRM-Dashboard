@@ -91,14 +91,42 @@ async function count(tx: Tx, table: string, where = "true"): Promise<number> {
   return (rows.rows[0] as { n: number }).n;
 }
 
-/** Did this throw, and did the message look like the RLS context guard? */
+/** Did this throw, and what did Postgres actually say? */
 async function refused(fn: () => Promise<unknown>): Promise<string> {
   try {
     await fn();
     return "no error";
   } catch (error) {
-    return error instanceof Error ? error.message.split("\n")[0] : String(error);
+    return messageChain(error);
   }
+}
+
+/**
+ * Every message in the `cause` chain, joined.
+ *
+ * Reading `error.message` alone is not enough and silently inverts every
+ * assertion in this file that matches on the text. Drizzle wraps a driver
+ * failure in a `DrizzleQueryError` whose own message is
+ * `Failed query: SELECT ...` and hangs the real one on `.cause`:
+ *
+ *   [0] DrizzleQueryError: Failed query: SELECT count(*) FROM patients
+ *   [1] DatabaseError:     app.role is not set: this query ran outside withSession()
+ *
+ * So a correctly-refused query looks like a passing query to a regex over
+ * the top-level message, and the suite reports the database as broken when
+ * the database is right. That is the worst possible failure mode for a test
+ * whose entire job is proving that access is denied — it fails open in the
+ * reporting, not just in the check.
+ */
+function messageChain(error: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; current && depth < 5; depth += 1) {
+    const step = current as Error & { cause?: unknown };
+    if (step.message) parts.push(step.message.split("\n")[0]);
+    current = step.cause;
+  }
+  return parts.length > 0 ? parts.join(" | ") : String(error);
 }
 
 function session(role: Role, departmentId: string | null): AuthzSession {
