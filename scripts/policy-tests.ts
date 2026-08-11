@@ -437,6 +437,35 @@ async function main(): Promise<void> {
       check("an out-of-scope reveal is NOT_FOUND, never FORBIDDEN", outOfScope, "NOT_FOUND");
 
       check("refusals write no audit entries at all", await revealed(), afterSuccess);
+
+      // plan/04 §11: "Killing the audit insert makes `reveal` return nothing —
+      // tested by fault injection."
+      //
+      // The injection is a real constraint rather than a mock: audit_log.actor_id
+      // references staff(id), so a session naming a staff row that does not exist
+      // makes step 5 fail with a foreign-key violation. That is the closest
+      // reachable analogue of "the audit write failed for reasons the caller
+      // cannot control", and it exercises the actual rollback rather than a
+      // simulated one.
+      //
+      // Two things must hold, and the second is the one worth testing: the call
+      // must not return a value, and the entry count must be unchanged. A
+      // transaction that returned the plaintext and rolled back only the entry
+      // would satisfy the first and violate the product's central promise.
+      const beforeInjection = await revealed();
+      const ghost = authzSession({
+        staffId: "00000000-0000-0000-0000-0000000000ff",
+        role: "Hospital Admin",
+        departmentId: null,
+      });
+      let leaked: unknown = null;
+      try {
+        leaked = await reveal(ghost, context, "patient", patient.reference, "phone");
+      } catch {
+        // Expected: the foreign key rejects the audit row.
+      }
+      check("a failed audit insert returns no value", leaked, null);
+      check("...and leaves the audit log unchanged", await revealed(), beforeInjection);
     }
   }
 
