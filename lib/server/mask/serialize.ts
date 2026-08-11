@@ -82,6 +82,45 @@ export function maskDateOfBirth(iso: string | null): string {
 }
 
 /**
+ * A mask for a column with **no fragment stored beside it**.
+ *
+ * `leads` holds `phone_encrypted` and `email_encrypted` but no `phone_last2`
+ * or `email_domain` (lib/server/db/schema/pipeline.ts). plan/01-foundation.md
+ * §4.1 added those fragments to `patients`, `staff` and `doctors` and not to
+ * leads, so the masking approach in plan/04 §3 has nothing to build from
+ * here.
+ *
+ * The alternative would be to decrypt in order to mask, which defeats the
+ * entire reason the fragments exist — a lead list of any size would decrypt
+ * every row to render dots. So a lead's contact renders as an unhinted mask:
+ * the caller learns a value exists and can be revealed, and nothing else.
+ *
+ * If a lead list ever needs the same triage affordance a patient list has
+ * (matching an inbound call against a record without a reveal), the fix is a
+ * migration adding the fragments, not a decryption here.
+ */
+export function maskWithoutFragment(present: boolean): string {
+  return present ? `${DOT.repeat(3)} ${DOT.repeat(3)} ${DOT.repeat(4)}` : "";
+}
+
+/**
+ * The contact block a lead DTO carries. Same shape as `maskContact` so the
+ * `Protected` component cannot tell the difference, but built from existence
+ * rather than from fragments.
+ */
+export function maskLeadContact(
+  session: AuthzSession,
+  present: { phone: boolean; email: boolean },
+): { phone: MaskedField; email: MaskedField } {
+  const revealable = holds(session, "reveal");
+  return {
+    // Nothing to reveal when nothing is stored, whatever the role holds.
+    phone: { masked: maskWithoutFragment(present.phone), revealable: revealable && present.phone },
+    email: { masked: maskWithoutFragment(present.email), revealable: revealable && present.email },
+  };
+}
+
+/**
  * The contact block every patient DTO carries, per plan §3.
  *
  * Takes the fragments individually rather than a row, so it cannot be handed
