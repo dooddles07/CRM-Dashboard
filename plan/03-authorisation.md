@@ -257,21 +257,23 @@ Without those four, impersonation is a hole large enough to make the rest of thi
 
 ## 8. Done when
 
-Three states, because "written" and "verified" are not the same thing and no database was
-available while this phase was built:
+Three states, since "written" and "verified" are not the same thing:
 
-- **[x]** done and verified by something that ran
-- **[~]** written, and verified only as far as it can be without a live database
+- **[x]** verified by something that ran — `npm test` (35 assertions) or `npm run test:policies`
+  (56 assertions, against a seeded Neon database as `careflow_app`)
+- **[~]** written and partly verified; the remainder belongs to a later phase
 - **[ ]** not done
 
 <!-- -->
 
 - [x] `/admin/roles` renders from `lib/server/authz/matrix.ts`, not a local array
-- [~] A Nurse in Pediatrics reading `/patients` sees exactly the Pediatrics rows — the policy is
-      written and `scripts/policy-tests.ts` asserts it, deriving the count from the seed fixtures.
-      Note the plan's own worked example in §5.3 says 4; the seed has **3** patients in Pediatrics
-- [~] The same Nurse requesting a Cardiology patient by reference gets 404, not 403 — RLS returns
-      no row, which is the hard half. Turning "no row" into a 404 envelope is Phase 05's `handle`
+- [x] A Nurse in Pediatrics reading `/patients` sees exactly the Pediatrics rows — counts asserted
+      per role and per department, derived from the seed fixtures. Note the plan's worked example
+      in §5.3 says 4; the seed has **3** patients in Pediatrics, which is why the suite derives
+      the numbers rather than hard-coding them
+- [x] The same Nurse requesting a Cardiology patient by reference gets 404, not 403 — the row is
+      not fetchable by reference either, verified. Rendering that as a 404 envelope is Phase 05's
+      `handle`
 - [x] Marketing attempting a reveal gets `REVEAL_NOT_PERMITTED`
 - [x] Billing attempting a reveal gets `REVEAL_NOT_PERMITTED`
 - [~] Receptionist can reveal — the capability check passes. "And the entry lands in the audit log"
@@ -279,24 +281,47 @@ available while this phase was built:
 - [x] Exporting contact columns without `reveal` is refused
 - [ ] Exported rows consume the reveal budget — Phase 04. `canExport` refuses what must never
       start; the budget is a transaction, not a predicate
-- [~] `careflow_app` cannot `UPDATE` or `DELETE` from `audit_log`, verified by attempting it —
-      `scripts/policy-tests.ts` attempts exactly that, against the parent *and* every partition.
+- [x] `careflow_app` cannot `UPDATE` or `DELETE` from `audit_log`, verified by attempting it —
+      against the parent *and* both partitions, all four refused with `permission denied`.
       `drizzle/manual/0005_grants.sql` had revoked on the parent only, so `DELETE FROM
       audit_log_2026q3` worked; `0007` closes it
-- [x] `FORCE ROW LEVEL SECURITY` is set on every patient-scoped table — asserted by
-      `lib/server/authz/matrix.test.ts`, which fails if any table is `ENABLE`d without `FORCE`
-- [~] The policy test suite asserts exact row counts for all nine roles — written; needs a seeded
-      database and `npm run test:policies` to have run
-- [~] A query issued outside `withSession` fails rather than returning unscoped rows — the
-      `app_role()` accessor raises rather than returning NULL, so this is a real error and not an
-      empty result. §5.1 was not enough on its own: a pooled connection that has already served one
-      session reads the GUC back as `''`, not as unset
+- [x] `FORCE ROW LEVEL SECURITY` is set on every patient-scoped table — asserted statically by
+      `matrix.test.ts` and confirmed on the live database
+- [x] The policy test suite asserts exact row counts for all nine roles — 56 assertions passing
+- [x] A query issued outside `withSession` fails rather than returning unscoped rows — raises
+      `app.role is not set: this query ran outside withSession()`, and still raises on the same
+      pooled connection after one has been served. §5.1 was not enough on its own: a connection
+      that has already set the GUC reads it back as `''`, not as unset
 - [~] Impersonation writes start and end entries and cannot reveal — the reveal block is unit
-      tested; the entries and the 30-minute cap need a live session to exercise
+      tested and the guards are written; the entries and the 30-minute cap need a live signed-in
+      session to exercise, which arrives with Phase 06
 - [~] `/me` returns a permission set, and the rail hides what the caller lacks — the permission set
       is resolved and the rail, palette and mobile drawer filter against it. The HTTP `GET /me` is
       deliberately left to Phase 05, which owns `/api/v1` and its envelope; `permissionSet()` is
       the shape that route will serve
+
+### What the first live run found
+
+The policy suite reported 7 failures on its first run against a real database. All seven were the
+suite's own fault, and the fault is worth recording because of its direction: `refused()` read
+`error.message`, but Drizzle wraps a driver failure in a `DrizzleQueryError` whose message is
+`Failed query: ...` and hangs the real one on `.cause`. A correctly-refused query therefore looked
+like a permitted one. A test suite whose entire job is proving access is denied was failing open in
+its own reporting.
+
+Three real defects in the database were found and fixed on the way:
+
+1. Nine tables from Phase 02 — `user`, `session`, `account`, `verification`, `two_factor`,
+   `auth_attempts`, `auth_timing_padding`, `invitations`, `password_reset_tokens` — were owned by
+   the Neon-provisioned role rather than `careflow_owner`, so `careflow_app` held no grant on any
+   of them and `0005_grants.sql` could not even be re-run (`permission denied for table
+   verification`). Fixed by `drizzle/manual/0009_fix_table_ownership.sql`.
+2. `DATABASE_URL` connected as `neondb_owner`, which holds **`BYPASSRLS`**. Every policy in this
+   phase would have been a no-op in production. The application now connects as `careflow_app`,
+   which does not hold it.
+3. `0005_grants.sql` revoked `UPDATE`/`DELETE` on `audit_log`'s parent only. Grants are
+   per-relation, so `DELETE FROM audit_log_2026q3` was permitted. `0007` revokes on every
+   partition.
 
 ### Deliberately deferred, with reasons
 

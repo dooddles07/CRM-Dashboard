@@ -128,7 +128,7 @@ Update as phases land.
 | 00 Audit | Complete |
 | 01 Foundation | Complete |
 | 02 Authentication | Complete |
-| 03 Authorisation | Complete in code — `drizzle/manual/0007`, `0008` not yet applied to a database, and `npm run test:policies` has not been run |
+| 03 Authorisation | Complete. Migrations applied, `npm run test:policies` passes 56 assertions against the seeded database |
 | 04 Service layer | Not started |
 | 05 HTTP API | Not started |
 | 06 Screen migration | Not started |
