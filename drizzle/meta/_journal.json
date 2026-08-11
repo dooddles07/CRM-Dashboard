@@ -50,6 +50,13 @@
       "when": 1786414912764,
       "tag": "0006_daily_retro_girl",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786447953513,
+      "tag": "0007_cool_viper",
+      "breakpoints": true
     }
   ]
 }
