@@ -9,7 +9,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test \"lib/**/*.test.ts\"",
-    "test:policies": "node --import tsx scripts/policy-tests.ts",
+    "test:policies": "node --env-file-if-exists=.env.local --env-file-if-exists=.env --import tsx scripts/policy-tests.ts",
     "gen:enums": "tsx scripts/gen-enums.ts",
     "gen:enums:check": "tsx scripts/gen-enums.ts --check",
     "db:generate": "drizzle-kit generate",

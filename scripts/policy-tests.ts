@@ -27,11 +27,12 @@
  * that is rolled back, and the writes it attempts are the ones it expects to
  * be refused.
  */
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 import { config } from "dotenv";
 import { createDb } from "../lib/server/db";
 import { applySessionContext, type Tx } from "../lib/server/db/session";
 import { authzSession, type AuthzSession } from "../lib/server/authz/policy";
+import { reveal } from "../lib/server/services/reveal";
 import { DEPARTMENT_SCOPE, ROLES, type Role } from "../lib/server/authz/matrix";
 import { patients as patientFixtures, staff as staffFixtures } from "../lib/data/people";
 
@@ -127,6 +128,34 @@ function messageChain(error: unknown): string {
     current = step.cause;
   }
   return parts.length > 0 ? parts.join(" | ") : String(error);
+}
+
+/**
+ * A read through `careflow_owner`, for the handful of setup queries that need
+ * a row before any session exists.
+ *
+ * The suite's own connection is `careflow_app` and deliberately cannot read
+ * `patients` without a declared session — that is the guarantee under test.
+ * Reaching for the owner here rather than relaxing the guarantee keeps the
+ * two separate.
+ */
+async function asOwner(query: SQL): Promise<Record<string, unknown>[]> {
+  const url = process.env.CAREFLOW_OWNER_URL_UNPOOLED;
+  if (!url) throw new Error("policy-tests: CAREFLOW_OWNER_URL_UNPOOLED is needed for setup reads.");
+  const owner = createDb(url);
+  const result = await owner.execute(query);
+  return result.rows as Record<string, unknown>[];
+}
+
+/** The `ServiceError` code a call was refused with, or a description of why not. */
+async function refusedCode(fn: () => Promise<unknown>): Promise<string> {
+  try {
+    await fn();
+    return "no error";
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+    return typeof code === "string" ? code : messageChain(error);
+  }
 }
 
 function session(role: Role, departmentId: string | null): AuthzSession {
@@ -336,6 +365,79 @@ async function main(): Promise<void> {
       db.execute(sql`UPDATE staff SET role = 'Administrator' WHERE true`),
     );
     check("an unknown role is refused by staff_role_known", /staff_role_known/.test(badRole), true);
+  }
+
+  console.log("\nreveal is a transaction, not a convention (plan/04 §5)");
+  {
+    const staffRow = await db.execute(
+      sql`SELECT id, name FROM staff WHERE role = 'Hospital Admin' LIMIT 1`,
+    );
+    const actor = staffRow.rows[0] as { id: string; name: string } | undefined;
+    const patientRow = await asOwner(
+      sql`SELECT reference, department_id FROM patients LIMIT 1`,
+    );
+    const patient = patientRow[0] as { reference: string; department_id: string } | undefined;
+
+    if (!actor || !patient) {
+      failures.push("reveal checks need a seeded Hospital Admin and at least one patient");
+    } else {
+      const otherDepartment = [...departmentIdBySlug.values()].find(
+        (id) => id !== patient.department_id,
+      )!;
+      const context = { actorName: actor.name };
+      const revealed = async () =>
+        Number(
+          (
+            (await asOwner(
+              sql`SELECT count(*)::int AS n FROM audit_log WHERE action = 'revealed'`,
+            ))[0] as { n: number }
+          ).n,
+        );
+
+      const before = await revealed();
+      const admin = authzSession({ staffId: actor.id, role: "Hospital Admin", departmentId: null });
+      const result = await reveal(admin, context, "patient", patient.reference, "phone");
+
+      check("a permitted reveal returns a plaintext value", result.value.length > 0, true);
+      check("...and writes exactly one audit entry", (await revealed()) - before, 1);
+
+      const afterSuccess = await revealed();
+
+      // Each refusal must leave the count untouched: the entry is written
+      // inside the same transaction as the disclosure, so a refused reveal
+      // rolls the entry back with it.
+      for (const [label, session] of [
+        ["Marketing", authzSession({ staffId: actor.id, role: "Marketing", departmentId: null })],
+        [
+          "an impersonated Super Admin",
+          authzSession({
+            staffId: actor.id,
+            role: "Super Admin",
+            departmentId: null,
+            impersonated: true,
+          }),
+        ],
+      ] as const) {
+        const code = await refusedCode(() =>
+          reveal(session, context, "patient", patient.reference, "phone"),
+        );
+        check(`${label} is refused with REVEAL_NOT_PERMITTED`, code, "REVEAL_NOT_PERMITTED");
+      }
+
+      // plan/03 §8: "out of scope is indistinguishable from not existing".
+      const outOfScope = await refusedCode(() =>
+        reveal(
+          authzSession({ staffId: actor.id, role: "Nurse", departmentId: otherDepartment }),
+          context,
+          "patient",
+          patient.reference,
+          "phone",
+        ),
+      );
+      check("an out-of-scope reveal is NOT_FOUND, never FORBIDDEN", outOfScope, "NOT_FOUND");
+
+      check("refusals write no audit entries at all", await revealed(), afterSuccess);
+    }
   }
 
   console.log("");

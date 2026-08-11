@@ -10,6 +10,7 @@ import {
   type Role,
   isRole,
 } from "./matrix";
+import { ServiceError, type ServiceErrorCode } from "@/lib/server/services/errors";
 
 /**
  * plan/03-authorisation.md §3. The decision functions over ./matrix.ts.
@@ -67,12 +68,15 @@ export interface AuthzSession {
   impersonated: boolean;
 }
 
-/** Codes the API contract already documents (docs/API.md "Error response"). */
-export type ForbiddenCode =
-  | "FORBIDDEN"
-  | "REVEAL_NOT_PERMITTED"
-  | "EXPORT_NOT_PERMITTED"
-  | "AUDIT_ACCESS_DENIED";
+/**
+ * Codes the API contract already documents (docs/API.md "Error response"),
+ * narrowed from the service-wide set so a `ForbiddenError` cannot be
+ * constructed with, say, `NOT_FOUND`.
+ */
+export type ForbiddenCode = Extract<
+  ServiceErrorCode,
+  "FORBIDDEN" | "REVEAL_NOT_PERMITTED" | "EXPORT_NOT_PERMITTED" | "AUDIT_ACCESS_DENIED"
+>;
 
 /**
  * plan §3: "`assert` throws a typed `ForbiddenError`. It carries the area,
@@ -91,9 +95,10 @@ export type ForbiddenCode =
  * indistinguishable from not existing", and that case never reaches this
  * class — RLS returns zero rows and the service reports not-found.
  */
-export class ForbiddenError extends Error {
+export class ForbiddenError extends ServiceError {
   readonly name = "ForbiddenError";
   readonly code: ForbiddenCode;
+  readonly status = 403;
   readonly role: Role;
   readonly area?: Area;
   readonly level?: Level;
@@ -109,7 +114,15 @@ export class ForbiddenError extends Error {
       capability?: Capability;
     },
   ) {
-    super(message);
+    // The structured fields go into `details` as well as onto the instance:
+    // the instance shape is what this module's callers read, and `details` is
+    // what Phase 05's envelope and the audit entry serialise without needing
+    // to know which error subclass they were handed.
+    super(message, {
+      role: detail.role,
+      ...(detail.area ? { area: detail.area, level: detail.level } : {}),
+      ...(detail.capability ? { capability: detail.capability } : {}),
+    });
     this.code = detail.code ?? "FORBIDDEN";
     this.role = detail.role;
     this.area = detail.area;

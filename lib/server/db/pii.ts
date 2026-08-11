@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { sql, type SQL, type SQLWrapper } from "drizzle-orm";
 
 /**
  * Task 3 (plan/02-authentication.md §6/§7). The exact `pgp_sym_encrypt`
@@ -31,6 +31,27 @@ export function encryptPii(value: string | null | undefined) {
 /** Same as `encryptPii`, typed for NOT NULL contact columns (`staff.emailEncrypted` and friends). */
 export function encryptPiiRequired(value: string) {
   return sql`pgp_sym_encrypt(${value}, ${PII_KEY})`;
+}
+
+/**
+ * plan/04-service-layer.md §5, step 6. The inverse of `encryptPii`, and the
+ * only way a plaintext contact detail is produced anywhere in this codebase.
+ *
+ * Takes the column, not a value: it builds the `pgp_sym_decrypt` fragment for
+ * a SELECT, so the decryption happens in Postgres and the key is never
+ * compared or held in JS. `bytea` has to be cast because `pgp_sym_decrypt`
+ * has no overload for the raw column type Drizzle emits.
+ *
+ * **Call this only from lib/server/services/reveal.ts.** It is exported
+ * rather than kept private because reveal.ts is a different module, not
+ * because it is generally useful. plan §9: reveal is "the only function in
+ * the codebase returning an unmasked value", and that property is worth more
+ * than the convenience of decrypting somewhere else. A list screen must never
+ * reach for this — that is what `phone_last2` / `email_domain` /
+ * `address_city` exist for, and rendering 24 patients decrypts nothing.
+ */
+export function decryptPii(column: SQL | SQLWrapper) {
+  return sql<string>`pgp_sym_decrypt(${column}::bytea, ${PII_KEY})`;
 }
 
 /** `staff.emailDomain` / `outbound_messages`-adjacent domain extraction, same rule as `scripts/seed.ts`'s `domainOf()`. */
