@@ -63,10 +63,20 @@ const noExportedRowType = {
       }
       // typeof table.$inferSelect / $inferInsert
       if (
-        node.type === "TSIndexedAccessType" ||
-        (node.type === "TSTypeQuery" &&
-          node.exprName?.type === "TSQualifiedName" &&
-          /^\$infer(Select|Insert)$/.test(node.exprName.right?.name ?? ""))
+        node.type === "TSTypeQuery" &&
+        node.exprName?.type === "TSQualifiedName" &&
+        /^\$infer(Select|Insert)$/.test(node.exprName.right?.name ?? "")
+      ) {
+        return true;
+      }
+      // (typeof table)["$inferSelect"] — the same thing, spelled as an
+      // indexed access. Only the `$infer*` index counts: a bare
+      // TSIndexedAccessType is far too broad and flags ordinary narrowing
+      // like `Feedback["status"]`, which is a string union and not a row.
+      if (
+        node.type === "TSIndexedAccessType" &&
+        node.indexType?.type === "TSLiteralType" &&
+        /^\$infer(Select|Insert)$/.test(node.indexType.literal?.value ?? "")
       ) {
         return true;
       }
