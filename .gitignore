@@ -20,3 +20,6 @@ yarn-error.log*
 /playwright-report
 /test-results
 .vercel
+
+# Playwright MCP session artifacts
+.playwright-mcp/
