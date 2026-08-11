@@ -31,9 +31,10 @@ export interface CreateInvitationResult {
 
 /**
  * task-3-brief.md §2, "Create an invitation." Validates `role` against the
- * current known set (lib/server/auth/roles.ts) — not the nine-role matrix,
- * which is Phase 03's job (brief's "Out of scope" section). Does not
- * validate `departmentId` beyond the table's own FK — an invalid id fails
+ * known set (lib/server/auth/roles.ts), which as of Phase 03 is the nine-role
+ * matrix itself — so an invitation can no longer name a role enforcement has
+ * never heard of, and "Doctor" is now invitable where it previously wasn't.
+ * Does not validate `departmentId` beyond the table's own FK — an invalid id fails
  * loudly as a Postgres foreign-key violation, which is enough given Task 4
  * is expected to populate this from a real department picker, not free text.
  *

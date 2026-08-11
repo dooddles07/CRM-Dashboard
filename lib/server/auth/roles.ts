@@ -1,34 +1,30 @@
 /**
- * task-3-brief.md §1/§2: "Validate `--role` against the actual set of role
- * strings this codebase uses today — the nine-role matrix isn't code yet
- * (that's Phase 03), so don't invent a different taxonomy." Derived via
- * `grep -oE 'role: "[^"]+"' lib/data/people.ts | sort -u`, which returns
- * exactly these 8 strings across the 12 seeded staff fixtures. `staff.role`
- * (lib/server/db/schema/people.ts) stays TEXT, not an enum — Phase 03
- * decides the real shape — so this is "is this a known role string today",
- * not permission-matrix enforcement (explicitly out of scope, brief's
- * "Out of scope" section).
+ * Phase 02 shipped this file as a hand-maintained list of the 8 role strings
+ * that appeared in `lib/data/people.ts`'s staff fixtures, with a header
+ * saying the real shape was Phase 03's decision and warning that "nothing
+ * keeps this array in sync automatically". Phase 03 made that decision:
+ * `lib/server/authz/matrix.ts` is the source of truth for the nine roles, so
+ * this module is now a re-export rather than a second list to keep in sync.
  *
- * Re-derive this list (and re-run the grep above) if `lib/data/people.ts`'s
- * fixtures change; nothing keeps this array in sync automatically the way
- * `scripts/gen-enums.ts` keeps `lib/server/db/schema/enums.ts` in sync with
- * `lib/types.ts` (`npm run gen:enums:check` fails CI on drift) — `staff.role`
- * is plain TEXT, not a generated pgEnum, so there's no equivalent codegen
- * for this list to drift out of sync with.
+ * The set gains "Doctor", which the fixtures never used (doctors live in the
+ * `doctors` table, not `staff`) but which the matrix has always named as a
+ * role — so `npm run provision --role Doctor` and a Doctor invitation are
+ * both accepted now, and were not before. That is the intended taxonomy, not
+ * a widening: plan/03-authorisation.md §1 lists nine roles and enforcement
+ * covers all nine.
+ *
+ * The two names are kept (rather than rewriting both call sites to import
+ * `isRole`) because "is this a role a person may be *provisioned into*" is a
+ * question that could legitimately narrow later — an invitation flow might
+ * one day refuse to mint a second Super Admin over the wire, say — and that
+ * would be a change to this module, not to the matrix.
  */
-export const KNOWN_STAFF_ROLES = [
-  "Billing",
-  "Hospital Admin",
-  "Manager",
-  "Marketing",
-  "Nurse",
-  "Patient Relations",
-  "Receptionist",
-  "Super Admin",
-] as const;
+import { ROLES, isRole, type Role } from "@/lib/server/authz/matrix";
 
-export type KnownStaffRole = (typeof KNOWN_STAFF_ROLES)[number];
+export const KNOWN_STAFF_ROLES = ROLES;
+
+export type KnownStaffRole = Role;
 
 export function isKnownStaffRole(role: string): role is KnownStaffRole {
-  return (KNOWN_STAFF_ROLES as readonly string[]).includes(role);
+  return isRole(role);
 }
