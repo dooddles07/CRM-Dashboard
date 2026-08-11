@@ -382,7 +382,17 @@ export type AuditAction =
   | "exported"
   | "signed-in"
   | "signed-out"
-  | "locked";
+  | "locked"
+  // plan/03-authorisation.md §7 requires an audit entry on impersonation
+  // start and on end. Two actions rather than one with a direction field, so
+  // the /admin/audit filter can show either on its own — an unmatched start
+  // is the interesting query.
+  //
+  // Keep comments in this union free of double-quoted text:
+  // scripts/gen-enums.ts extracts every double-quoted literal in the block
+  // and would emit the quoted phrase as an enum member.
+  | "impersonation-started"
+  | "impersonation-ended";
 
 export interface AuditEntry {
   id: string;
