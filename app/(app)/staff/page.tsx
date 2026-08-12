@@ -1,30 +1,31 @@
-"use client";
+import { Suspense } from "react";
+import { redirect } from "next/navigation";
+import { requireSession } from "@/lib/server/auth/session";
+import * as directory from "@/lib/server/services/directory";
+import { TableSkeleton } from "@/components/data/skeletons";
+import { StaffClient } from "./staff-client";
 
-import Link from "next/link";
-import { UserCog } from "lucide-react";
-import { staff } from "@/lib/data/people";
-import { PageHeader } from "@/components/data/page-header";
-import { StaffTable } from "@/components/shared/staff-table";
-import { Button } from "@/components/ui/button";
-
-export default function StaffPage() {
-  const active = staff.filter((s) => s.status === "active").length;
-
+/**
+ * The directory is readable by every authenticated role — plan/03 §5.2 — so
+ * this shell has no area assertion beyond the session itself.
+ */
+export default function Page() {
   return (
-    <div className="mx-auto max-w-[100rem]">
-      <PageHeader
-        title="Staff"
-        description={`The people who run the hospital's operations · ${active} active of ${staff.length}.`}
-        actions={
-          <Button variant="outline" size="sm" asChild>
-            <Link href="/admin/users">
-              <UserCog className="size-3.5" strokeWidth={2} />
-              Manage users & roles
-            </Link>
-          </Button>
-        }
-      />
-      <StaffTable data={staff} />
-    </div>
+    <Suspense fallback={<TableSkeleton rows={10} columns={5} />}>
+      <StaffData />
+    </Suspense>
   );
+}
+
+async function StaffData() {
+  const authed = await requireSession();
+  if (!authed) redirect("/login");
+
+  // The hospital has twelve staff, so this is one page, not a paginated
+  // collection. plan §2: paginating something bounded by how many a hospital
+  // has adds latency for nothing.
+  const page = await directory.listStaff(authed.authz, { perPage: 100 });
+  const activeCount = page.data.filter((s) => s.status === "active").length;
+
+  return <StaffClient rows={page.data} activeCount={activeCount} />;
 }

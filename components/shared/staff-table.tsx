@@ -4,8 +4,9 @@ import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Contact, MoreHorizontal, Search, ShieldCheck, ShieldOff } from "lucide-react";
 import { toast } from "sonner";
-import type { StaffMember, StaffRole } from "@/lib/types";
-import { departmentName } from "@/lib/data/constants";
+import type { StaffRole } from "@/lib/types";
+import type { StaffDTO } from "@/lib/server/services/directory";
+import { relativeTime } from "@/lib/format";
 import { userStatus } from "@/lib/status";
 import { DataTable, selectionColumn } from "@/components/data/data-table";
 import { StatusChip } from "@/components/healthcare/status-chip";
@@ -43,7 +44,7 @@ export function StaffTable({
   data,
   manage = false,
 }: {
-  data: StaffMember[];
+  data: StaffDTO[];
   /** Adds selection, role, MFA columns and a row actions menu (admin view). */
   manage?: boolean;
 }) {
@@ -57,23 +58,26 @@ export function StaffTable({
       if (status !== "all" && s.status !== status) return false;
       if (search) {
         const q = search.toLowerCase();
-        if (!s.name.toLowerCase().includes(q) && !s.email.toLowerCase().includes(q)) return false;
+        // Email is masked on the DTO — only the domain survives — so it is
+        // no longer searchable. Matching a masked string would silently find
+        // nothing, which is worse than not offering it.
+        if (!s.name.toLowerCase().includes(q) && !s.role.toLowerCase().includes(q)) return false;
       }
       return true;
     });
   }, [data, role, status, search]);
 
-  const columns = useMemo<ColumnDef<StaffMember, unknown>[]>(() => {
-    const cols: ColumnDef<StaffMember, unknown>[] = [
+  const columns = useMemo<ColumnDef<StaffDTO, unknown>[]>(() => {
+    const cols: ColumnDef<StaffDTO, unknown>[] = [
       {
         accessorKey: "name",
         header: "Name",
         cell: ({ row }) => (
           <div className="flex items-center gap-2">
-            <PersonAvatar name={row.original.name} id={row.original.id} size="xs" initials={row.original.initials} />
+            <PersonAvatar name={row.original.name} id={row.original.reference} size="xs" initials={row.original.initials} />
             <div className="min-w-0">
               <p className="whitespace-nowrap font-medium text-ink">{row.original.name}</p>
-              <p className="text-caption text-ink-3">{row.original.email}</p>
+              <p className="text-caption text-ink-3">{row.original.email.masked}</p>
             </div>
           </div>
         ),
@@ -82,10 +86,10 @@ export function StaffTable({
       {
         id: "department",
         header: "Department",
-        accessorFn: (s) => (s.departmentId ? departmentName(s.departmentId) : "—"),
+        accessorFn: (s) => s.department?.name ?? "—",
         cell: ({ row }) => (
           <span className="whitespace-nowrap text-ink-2">
-            {row.original.departmentId ? departmentName(row.original.departmentId) : "Hospital-wide"}
+            {row.original.department?.name ?? "Hospital-wide"}
           </span>
         ),
       },
@@ -111,14 +115,16 @@ export function StaffTable({
           ),
       },
       {
-        accessorKey: "lastActive",
+        accessorKey: "lastActiveAt",
         header: "Last active",
-        cell: ({ row }) => <span className="whitespace-nowrap text-ink-3">{row.original.lastActive}</span>,
+        cell: ({ row }) => <span className="whitespace-nowrap text-ink-3">
+            {row.original.lastActiveAt ? relativeTime(row.original.lastActiveAt) : "Never"}
+          </span>,
       },
     ];
 
     if (manage) {
-      cols.unshift(selectionColumn<StaffMember>("users"));
+      cols.unshift(selectionColumn<StaffDTO>("users"));
       cols.push({
         id: "actions",
         header: "",
@@ -154,7 +160,7 @@ export function StaffTable({
     <DataTable
       columns={columns}
       data={filtered}
-      getRowId={(s) => s.id}
+      getRowId={(s) => s.reference}
       pageSize={12}
       minWidth={manage ? "72rem" : "64rem"}
       empty={{
@@ -166,7 +172,7 @@ export function StaffTable({
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-0 flex-1 sm:max-w-xs">
             <Search aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-3" strokeWidth={2} />
-            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name or email" aria-label="Search staff" className="h-8 pl-8" />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name or role" aria-label="Search staff by name or role" className="h-8 pl-8" />
           </div>
           <Select value={role} onValueChange={setRole}>
             <SelectTrigger size="sm" className="w-auto min-w-36" aria-label="Role">
