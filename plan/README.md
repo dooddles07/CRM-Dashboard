@@ -131,7 +131,7 @@ Update as phases land.
 | 03 Authorisation | Complete. Migrations applied, `npm run test:policies` passes 64 assertions against the seeded database |
 | 04 Service layer | Complete in code — 20 services, verified live. Two items deferred: the reveal budget is untested, and the `lib/store.ts` shrink is blocked on Phase 06 |
 | 05 HTTP API | Core complete — 18 routes verified live. Webhooks and cron deferred to Phase 07, documents to Phase 08, `docs/API.md` not yet rewritten |
-| 06 Screen migration | Not started |
+| 06 Screen migration | Started — `Protected`/reveal migrated, `/patients` done, timeline service built. 32 routes remain |
 | 07 Jobs and messaging | Not started |
 | 08 Security hardening | Not started |
 | 09 Observability | Not started |
