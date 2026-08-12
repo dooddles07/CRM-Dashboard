@@ -415,3 +415,26 @@ export async function listDepartments(session: AuthzSession): Promise<Department
     }));
   });
 }
+
+/**
+ * A staff member's UUID from their business reference.
+ *
+ * Exists because `StaffDTO` deliberately carries no `id`: plan/05 §3
+ * addresses records by business reference, so a UUID never crosses to a
+ * client and never comes back from one. Actions that need the key resolve it
+ * here, server-side, where the lookup is also scoped.
+ */
+export async function staffIdByReference(
+  session: AuthzSession,
+  reference: string,
+): Promise<string> {
+  return withSession(session, async (tx) => {
+    const [row] = await tx
+      .select({ id: staff.id })
+      .from(staff)
+      .where(eq(staff.reference, reference))
+      .limit(1);
+    if (!row) throw new NotFoundError("That staff member could not be found.", { reference });
+    return row.id;
+  });
+}
