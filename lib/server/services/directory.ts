@@ -74,6 +74,11 @@ export interface DepartmentDTO {
   patientCount: number;
   doctorCount: number;
   upcomingAppointments: number;
+  leadCount: number;
+  /** Mean feedback rating, 1–5. `null` when the department has no feedback yet. */
+  satisfaction: number | null;
+  /** Percentage of past appointments marked no-show. `null` when there are none. */
+  noShowRate: number | null;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -371,6 +376,22 @@ export async function listDepartments(session: AuthzSession): Promise<Department
           (SELECT count(*)::int FROM ${appointments}
            WHERE ${appointments.departmentId} = ${departments.id}
              AND ${appointments.startsAt} >= now())`,
+        leadCount: sql<number>`
+          (SELECT count(*)::int FROM leads
+           WHERE leads.department_id = ${departments.id}
+             AND leads.converted_patient_id IS NULL)`,
+        satisfaction: sql<string | null>`
+          (SELECT round(avg(rating)::numeric, 1) FROM feedback
+           WHERE feedback.department_id = ${departments.id})`,
+        // Past appointments only: a future booking cannot have been missed,
+        // and counting it would drag every department's rate toward zero.
+        noShowRate: sql<string | null>`
+          (SELECT CASE WHEN count(*) = 0 THEN NULL
+                       ELSE round(100.0 * count(*) FILTER (WHERE status = 'no_show') / count(*), 1)
+                  END
+           FROM appointments
+           WHERE appointments.department_id = ${departments.id}
+             AND appointments.starts_at < now())`,
       })
       .from(departments)
       .leftJoin(doctors, eq(doctors.id, departments.headId))
@@ -388,6 +409,9 @@ export async function listDepartments(session: AuthzSession): Promise<Department
       patientCount: row.patientCount ?? 0,
       doctorCount: row.doctorCount ?? 0,
       upcomingAppointments: row.upcomingAppointments ?? 0,
+      leadCount: row.leadCount ?? 0,
+      satisfaction: row.satisfaction === null ? null : Number(row.satisfaction),
+      noShowRate: row.noShowRate === null ? null : Number(row.noShowRate),
     }));
   });
 }
