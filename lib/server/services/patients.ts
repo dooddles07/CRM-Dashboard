@@ -51,6 +51,8 @@ export interface PatientListDTO {
   lastVisit: string | null;
   nextAppointment: string | null;
   outstandingFollowUps: number;
+  /** On the list DTO because /patients filters by it. Not a contact detail. */
+  insurance: string | null;
   phone: MaskedField;
   email: MaskedField;
 }
@@ -58,7 +60,6 @@ export interface PatientListDTO {
 export interface PatientDetailDTO extends PatientListDTO {
   gender: string;
   registeredAt: string;
-  insurance: string | null;
   source: string;
   satisfaction: number | null;
   notes: string | null;
@@ -151,6 +152,7 @@ const listProjection = {
   phoneLast2: patients.phoneLast2,
   emailDomain: patients.emailDomain,
   addressCity: patients.addressCity,
+  insurance: patients.insurance,
   archivedAt: patients.archivedAt,
   departmentId: departments.id,
   departmentName: departments.name,
@@ -202,6 +204,7 @@ function toListDTO(session: AuthzSession, row: ListRow): PatientListDTO {
     lastVisit: row.lastVisit as string | null,
     nextAppointment: row.nextAppointment as string | null,
     outstandingFollowUps: row.outstandingFollowUps ?? 0,
+    insurance: (row.insurance as string | null) ?? null,
     phone: contact.phone,
     email: contact.email,
   };
@@ -294,7 +297,6 @@ const detailProjection = {
   ...listProjection,
   gender: patients.gender,
   registeredAt: patients.registeredAt,
-  insurance: patients.insurance,
   source: patients.source,
   satisfaction: patients.satisfaction,
   notes: patients.notes,
@@ -335,7 +337,6 @@ function toDetailDTO(session: AuthzSession, row: Record<string, unknown>): Patie
     ...base,
     gender: row.gender as string,
     registeredAt: row.registeredAt as string,
-    insurance: (row.insurance as string | null) ?? null,
     source: row.source as string,
     satisfaction: row.satisfaction === null ? null : Number(row.satisfaction),
     notes: (row.notes as string | null) ?? null,
