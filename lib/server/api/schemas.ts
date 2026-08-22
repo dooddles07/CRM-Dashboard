@@ -201,6 +201,14 @@ export const moveStageSchema = z.object({ stage: leadStageEnum });
 
 export const convertSchema = z.object({ patientReference: reference });
 
+export const followUpCompleteSchema = z.object({
+  note: z.string().trim().max(2000).nullable().optional(),
+});
+
+export const followUpRescheduleSchema = z.object({
+  dueDate: z.string().date(),
+});
+
 /* -------------------------------------------------------------------------- */
 /* Audit                                                                      */
 /* -------------------------------------------------------------------------- */

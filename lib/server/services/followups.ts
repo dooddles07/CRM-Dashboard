@@ -176,6 +176,56 @@ export async function complete(
   );
 }
 
+/**
+ * Reschedule moves the due date only. It does not touch `completedAt` — a
+ * completed follow-up is history, not something a due-date edit should be
+ * able to reopen.
+ */
+export async function reschedule(
+  session: AuthzSession,
+  reference: string,
+  dueDate: string,
+  context: AuditContext,
+): Promise<FollowUpDTO> {
+  assert(session, "pipeline", "edit");
+
+  return withSession(session, async (tx) =>
+    mappingDatabaseErrors(async () => {
+      const [row] = await tx
+        .select({ id: followUps.id, dueDate: followUps.dueDate })
+        .from(followUps)
+        .where(eq(followUps.reference, reference))
+        .limit(1);
+
+      if (!row) throw new NotFoundError("That follow-up could not be found.", { reference });
+
+      await tx
+        .update(followUps)
+        .set({ dueDate, updatedAt: new Date() })
+        .where(eq(followUps.id, row.id));
+
+      await writeAudit(tx, session, context, {
+        action: "updated",
+        resourceType: "follow_up",
+        resourceId: reference,
+        field: "dueDate",
+        previousValue: row.dueDate,
+        newValue: dueDate,
+      });
+
+      const [fresh] = await tx
+        .select(projection)
+        .from(followUps)
+        .innerJoin(patients, eq(patients.id, followUps.patientId))
+        .leftJoin(staff, eq(staff.id, followUps.ownerId))
+        .where(eq(followUps.id, row.id))
+        .limit(1);
+
+      return toDTO(fresh as Record<string, unknown>);
+    }),
+  );
+}
+
 /** Counts per derived status, for the rail badge and the follow-ups header. */
 export async function statusCounts(session: AuthzSession): Promise<Record<string, number>> {
   assert(session, "pipeline", "view");

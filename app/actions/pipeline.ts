@@ -9,6 +9,9 @@ import { writeAudit } from "@/lib/server/audit/write";
 import { withSession } from "@/lib/server/db/session";
 import * as tasks from "@/lib/server/services/tasks";
 import * as directory from "@/lib/server/services/directory";
+import * as leads from "@/lib/server/services/leads";
+import * as followups from "@/lib/server/services/followups";
+import { moveStageSchema, convertSchema, followUpCompleteSchema, followUpRescheduleSchema } from "@/lib/server/api/schemas";
 import { ServiceError, UnauthorizedError } from "@/lib/server/services/errors";
 import { tags } from "@/lib/server/cache";
 
@@ -84,6 +87,64 @@ export async function createTask(input: unknown): Promise<ActionResult<{ referen
     );
     updateTag(tags.tasks());
     return { ok: true, data: { reference: created.reference } };
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+/** 03-leads-followups ticket. The stage move and its history row are one transaction, in the service. */
+export async function moveLeadStage(reference: string, stage: unknown): Promise<ActionResult> {
+  try {
+    const { session, audit } = await context();
+    const parsed = moveStageSchema.parse({ stage });
+    await leads.moveStage(session, reference, parsed.stage, audit);
+    updateTag(tags.leads());
+    updateTag(tags.lead(reference));
+    return { ok: true };
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+/**
+ * The patient is created by the caller's own flow before this runs — see
+ * `leads.linkConverted`'s comment for why. This action only links an
+ * already-created patient to the lead.
+ */
+export async function convertLead(reference: string, patientReference: unknown): Promise<ActionResult> {
+  try {
+    const { session, audit } = await context();
+    const parsed = convertSchema.parse({ patientReference });
+    await leads.linkConverted(session, reference, parsed.patientReference, audit);
+    updateTag(tags.leads());
+    updateTag(tags.lead(reference));
+    updateTag(tags.patients());
+    updateTag(tags.patient(parsed.patientReference));
+    return { ok: true };
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+export async function completeFollowUp(reference: string, note: unknown): Promise<ActionResult> {
+  try {
+    const { session, audit } = await context();
+    const parsed = followUpCompleteSchema.parse({ note });
+    await followups.complete(session, reference, parsed.note ?? null, audit);
+    updateTag(tags.followUps());
+    return { ok: true };
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+export async function rescheduleFollowUp(reference: string, dueDate: unknown): Promise<ActionResult> {
+  try {
+    const { session, audit } = await context();
+    const parsed = followUpRescheduleSchema.parse({ dueDate });
+    await followups.reschedule(session, reference, parsed.dueDate, audit);
+    updateTag(tags.followUps());
+    return { ok: true };
   } catch (error) {
     return failure(error);
   }

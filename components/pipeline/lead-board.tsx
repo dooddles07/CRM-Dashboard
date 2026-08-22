@@ -14,10 +14,12 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import type { Lead, LeadStage } from "@/lib/types";
+import { toast } from "sonner";
+import type { LeadStage } from "@/lib/types";
+import type { LeadDTO } from "@/lib/server/services/leads";
+import { moveLeadStage } from "@/app/actions/pipeline";
 import { leadStage, priorityMeta } from "@/lib/status";
-import { staffById } from "@/lib/data/people";
-import { sourceLabels } from "@/lib/data/constants";
+import { sourceLabels } from "@/lib/labels";
 import { formatCurrency } from "@/lib/format";
 import { PersonAvatar } from "@/components/healthcare/person-avatar";
 import { StatusChip } from "@/components/healthcare/status-chip";
@@ -25,8 +27,7 @@ import { cn } from "@/lib/utils";
 
 const STAGES: LeadStage[] = ["new", "contacted", "qualified", "booked", "visited", "converted"];
 
-function LeadCard({ lead, overlay }: { lead: Lead; overlay?: boolean }) {
-  const owner = staffById(lead.ownerId);
+function LeadCard({ lead, overlay }: { lead: LeadDTO; overlay?: boolean }) {
   return (
     <div
       className={cn(
@@ -38,15 +39,15 @@ function LeadCard({ lead, overlay }: { lead: Lead; overlay?: boolean }) {
         <p className="min-w-0 flex-1 truncate text-body-sm font-medium text-ink">{lead.name}</p>
         <StatusChip meta={priorityMeta[lead.priority]} showIcon={false} className="shrink-0" />
       </div>
-      <p className="mt-0.5 truncate text-caption text-ink-3">{lead.interest}</p>
+      <p className="mt-0.5 truncate text-caption text-ink-3">{lead.interest ?? "No interest recorded"}</p>
       <div className="mt-2 flex items-center justify-between gap-2">
         <span className="text-body-sm font-medium text-ink tabular-nums">
-          {formatCurrency(lead.value)}
+          {formatCurrency(lead.valueCents / 100)}
         </span>
         <span className="flex items-center gap-1.5 text-caption text-ink-3">
-          {sourceLabels[lead.source]}
-          {owner && (
-            <PersonAvatar name={owner.name} id={owner.id} size="xs" initials={owner.initials} />
+          {sourceLabels[lead.source as keyof typeof sourceLabels] ?? lead.source}
+          {lead.owner && (
+            <PersonAvatar name={lead.owner.name} id={lead.owner.reference} size="xs" />
           )}
         </span>
       </div>
@@ -54,15 +55,18 @@ function LeadCard({ lead, overlay }: { lead: Lead; overlay?: boolean }) {
   );
 }
 
-function DraggableCard({ lead }: { lead: Lead }) {
+function DraggableCard({ lead, disabled }: { lead: LeadDTO; disabled: boolean }) {
   const router = useRouter();
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: lead.id });
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: lead.reference,
+    disabled,
+  });
   return (
     <div
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      onClick={() => router.push(`/leads/${lead.id}`)}
+      onClick={() => router.push(`/leads/${lead.reference}`)}
       className={cn("touch-none outline-none", isDragging && "opacity-40")}
     >
       <LeadCard lead={lead} />
@@ -70,10 +74,10 @@ function DraggableCard({ lead }: { lead: Lead }) {
   );
 }
 
-function Column({ stage, leads }: { stage: LeadStage; leads: Lead[] }) {
-  const { setNodeRef, isOver } = useDroppable({ id: stage });
+function Column({ stage, leads }: { stage: LeadStage; leads: LeadDTO[] }) {
+  const { setNodeRef, isOver } = useDroppable({ id: stage, disabled: stage === "converted" });
   const meta = leadStage[stage];
-  const total = leads.reduce((s, l) => s + l.value, 0);
+  const total = leads.reduce((s, l) => s + l.valueCents, 0) / 100;
 
   return (
     <div className="flex w-72 shrink-0 flex-col">
@@ -92,7 +96,7 @@ function Column({ stage, leads }: { stage: LeadStage; leads: Lead[] }) {
         )}
       >
         {leads.map((l) => (
-          <DraggableCard key={l.id} lead={l} />
+          <DraggableCard key={l.reference} lead={l} disabled={l.stage === "converted"} />
         ))}
         {leads.length === 0 && (
           <p className="px-1 py-6 text-center text-caption text-ink-3">Drop leads here</p>
@@ -102,10 +106,21 @@ function Column({ stage, leads }: { stage: LeadStage; leads: Lead[] }) {
   );
 }
 
-export function LeadBoard({ leads: initial }: { leads: Lead[] }) {
-  const [leads, setLeads] = useState(initial);
+export function LeadBoard({ leads: source }: { leads: LeadDTO[] }) {
+  const router = useRouter();
+  const [leads, setLeads] = useState(source);
   const [activeId, setActiveId] = useState<string | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  // The parent re-fetches on router.refresh() after a persisted move; sync
+  // the board's local copy so a stage change from another tab shows up here.
+  // Adjusted during render (React's documented pattern for resetting state
+  // from a prop) rather than in an effect, which would cause an extra render.
+  const [prevSource, setPrevSource] = useState(source);
+  if (source !== prevSource) {
+    setPrevSource(source);
+    setLeads(source);
+  }
 
   function onDragStart(e: DragStartEvent) {
     setActiveId(String(e.active.id));
@@ -116,13 +131,26 @@ export function LeadBoard({ leads: initial }: { leads: Lead[] }) {
     const { active, over } = e;
     if (!over) return;
     const target = over.id as LeadStage;
-    if (!STAGES.includes(target)) return;
-    setLeads((prev) =>
-      prev.map((l) => (l.id === active.id && l.stage !== target ? { ...l, stage: target } : l)),
-    );
+    if (!STAGES.includes(target) || target === "converted") return;
+
+    const reference = String(active.id);
+    const previous = leads.find((l) => l.reference === reference);
+    if (!previous || previous.stage === target) return;
+
+    setLeads((prev) => prev.map((l) => (l.reference === reference ? { ...l, stage: target } : l)));
+
+    void moveLeadStage(reference, target).then((result) => {
+      if (!result.ok) {
+        // Roll back the optimistic move and let the person know why.
+        setLeads((prev) => prev.map((l) => (l.reference === reference ? { ...l, stage: previous.stage } : l)));
+        toast.error(result.message);
+        return;
+      }
+      router.refresh();
+    });
   }
 
-  const active = leads.find((l) => l.id === activeId);
+  const active = leads.find((l) => l.reference === activeId);
 
   return (
     <DndContext
