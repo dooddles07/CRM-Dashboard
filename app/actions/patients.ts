@@ -2,12 +2,13 @@
 
 import { headers as nextHeaders } from "next/headers";
 import { updateTag } from "next/cache";
+import { ZodError } from "zod";
 import { requireSession, resolveClientIp } from "@/lib/server/auth/session";
 import { assert, assertExport } from "@/lib/server/authz/policy";
 import { writeAudit } from "@/lib/server/audit/write";
 import { withSession } from "@/lib/server/db/session";
 import * as patients from "@/lib/server/services/patients";
-import { patientPatchSchema, archiveSchema } from "@/lib/server/api/schemas";
+import { patientPatchSchema, archiveSchema, newPatientSchema } from "@/lib/server/api/schemas";
 import { ServiceError, UnauthorizedError } from "@/lib/server/services/errors";
 import { tags } from "@/lib/server/cache";
 
@@ -49,6 +50,19 @@ function failure(error: unknown): { ok: false; code: string; message: string } {
   if (error instanceof ServiceError) {
     return { ok: false, code: error.code, message: error.message };
   }
+  // A schema rejection is a caller mistake, not a server fault — reported
+  // with the specific field, not folded into the generic INTERNAL message
+  // below (which would tell the person "try again" for a mistake retrying
+  // can't fix, e.g. an invalid email format).
+  if (error instanceof ZodError) {
+    const issue = error.issues[0];
+    const field = issue?.path.join(".");
+    return {
+      ok: false,
+      code: "VALIDATION_FAILED",
+      message: field ? `${field}: ${issue.message}` : (issue?.message ?? "Check the form and try again."),
+    };
+  }
   console.error(
     JSON.stringify({
       event: "action.unhandled",
@@ -57,6 +71,24 @@ function failure(error: unknown): { ok: false; code: string; message: string } {
     }),
   );
   return { ok: false, code: "INTERNAL", message: "That could not be saved. Try again." };
+}
+
+/**
+ * plan/06-screen-migration.md §5: `/patients/new` "submits via a Server
+ * Action, creates real patient in DB". `doctorReference` is resolved to the
+ * UUID the FK needs inside `patients.create`'s own transaction, the same way
+ * `appointments.create` resolves its references.
+ */
+export async function createPatient(input: unknown): Promise<ActionResult<{ reference: string }>> {
+  try {
+    const { session, audit } = await context();
+    const parsed = newPatientSchema.parse(input);
+    const created = await patients.create(session, parsed, audit);
+    updateTag(tags.patients());
+    return { ok: true, data: { reference: created.reference } };
+  } catch (error) {
+    return failure(error);
+  }
 }
 
 export async function updatePatient(

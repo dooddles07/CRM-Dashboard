@@ -417,6 +417,27 @@ export async function listDepartments(session: AuthzSession): Promise<Department
 }
 
 /**
+ * A doctor's UUID from their business reference. Same reason as
+ * `staffIdByReference` below: `DoctorDTO` carries no `id`, so a caller that
+ * needs the foreign key (assigning a patient to a doctor) resolves it here,
+ * scoped the same way the rest of the directory is.
+ */
+export async function doctorIdByReference(
+  session: AuthzSession,
+  reference: string,
+): Promise<string> {
+  return withSession(session, async (tx) => {
+    const [row] = await tx
+      .select({ id: doctors.id })
+      .from(doctors)
+      .where(and(eq(doctors.reference, reference), isNull(doctors.archivedAt)))
+      .limit(1);
+    if (!row) throw new NotFoundError("That doctor could not be found.", { reference });
+    return row.id;
+  });
+}
+
+/**
  * A staff member's UUID from their business reference.
  *
  * Exists because `StaffDTO` deliberately carries no `id`: plan/05 §3

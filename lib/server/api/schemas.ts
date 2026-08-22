@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AppointmentStatus, LeadStage, PatientStatus, Priority } from "@/lib/types";
+import type { AppointmentStatus, LeadSource, LeadStage, Patient, PatientStatus, Priority } from "@/lib/types";
 
 /**
  * plan/05-http-api.md §2. One schema per boundary, shared by the API and, in
@@ -51,6 +51,19 @@ const uuid = z.string().uuid();
  */
 export const patientStatusEnum = z.enum(["active", "inactive", "new", "archived"] satisfies PatientStatus[]);
 
+export const genderEnum = z.enum(["Female", "Male", "Other"] satisfies Patient["gender"][]);
+
+export const sourceEnum = z.enum([
+  "website",
+  "facebook",
+  "google",
+  "phone",
+  "walk-in",
+  "referral",
+  "partner",
+  "insurance",
+] satisfies LeadSource[]);
+
 export const patientFiltersSchema = pageQuery.extend({
   search: z.string().trim().min(1).max(100).optional(),
   status: patientStatusEnum.optional(),
@@ -87,6 +100,32 @@ export const revealSchema = z.object({
 
 export const archiveSchema = z.object({
   reason: z.string().trim().min(1).max(500),
+});
+
+/** plan §5's creation form: name, phone, and date of birth are the only fields required to persist. */
+export const newPatientSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  dateOfBirth: z.string().date(),
+  gender: genderEnum,
+  phone: z.string().trim().min(1).max(50),
+  email: z.string().trim().email().max(200).nullable().optional(),
+  address: z.string().trim().max(500).nullable().optional(),
+  emergencyContact: z
+    .object({
+      name: z.string().trim().max(200),
+      relation: z.string().trim().max(100),
+      phone: z.string().trim().max(50),
+    })
+    .nullable()
+    .optional(),
+  preferredChannel: z.enum(["sms", "email", "whatsapp", "call"]).optional(),
+  departmentId: uuid.nullable().optional(),
+  /** A doctor's business reference, e.g. `dr-482913` — resolved to a UUID by the action. */
+  doctorReference: reference.nullable().optional(),
+  source: sourceEnum,
+  insurance: z.string().trim().max(200).nullable().optional(),
+  tags: z.array(z.string().trim().max(50)).max(20).optional(),
+  notes: z.string().trim().max(5000).nullable().optional(),
 });
 
 /* -------------------------------------------------------------------------- */

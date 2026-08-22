@@ -85,6 +85,51 @@ export function ChartSkeleton({ className }: { className?: string }) {
   );
 }
 
+/** Mirrors RecordHeader + a two-column body — the shape every entity detail screen shares. */
+export function RecordSkeleton() {
+  return (
+    <div aria-busy="true" aria-live="polite" className="mx-auto max-w-[100rem]">
+      <span className="sr-only">Loading record</span>
+      <div className="rounded-lg border border-line bg-surface p-4">
+        <div className="flex items-start gap-3">
+          <span className="skeleton size-11 shrink-0 rounded-full" />
+          <div className="flex-1 space-y-2">
+            <Bar className="w-48" />
+            <Bar className="w-32" />
+          </div>
+        </div>
+        <div className="mt-4 grid gap-4 border-t border-line pt-3 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="space-y-1.5">
+              <Bar className="w-16" />
+              <Bar className="w-24" />
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="mt-4 grid gap-4 lg:grid-cols-3">
+        <div className="space-y-4 lg:col-span-2">
+          <Panel className="p-4">
+            <Bar className="w-32" />
+            <Bar className="mt-3 w-full" />
+            <Bar className="mt-2 w-2/3" />
+          </Panel>
+          <Panel className="p-4">
+            <Bar className="w-32" />
+            <Bar className="mt-3 w-full" />
+            <Bar className="mt-2 w-1/2" />
+          </Panel>
+        </div>
+        <Panel className="p-4">
+          <Bar className="w-24" />
+          <Bar className="mt-3 w-full" />
+          <Bar className="mt-2 w-3/4" />
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
 export function CardListSkeleton({ count = 5 }: { count?: number }) {
   return (
     <div aria-busy="true" className="divide-y divide-line">

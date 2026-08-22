@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
-import { collection, handle, searchParamsOf } from "@/lib/server/api/handle";
-import { patientFiltersSchema } from "@/lib/server/api/schemas";
+import { collection, handle, jsonBody, record, searchParamsOf } from "@/lib/server/api/handle";
+import { newPatientSchema, patientFiltersSchema } from "@/lib/server/api/schemas";
 import * as patients from "@/lib/server/services/patients";
 
 /**
@@ -19,5 +19,20 @@ export async function GET(request: NextRequest) {
       return collection(await patients.list(session, filters), request);
     },
     { scope: "patients:read" },
+  );
+}
+
+/**
+ * `newPatientSchema` — the same schema `app/actions/patients.ts`'s
+ * `createPatient` parses, per docs/API.md's "one schema, two callers".
+ */
+export async function POST(request: NextRequest) {
+  return handle(
+    request,
+    async ({ session, audit }) => {
+      const input = await jsonBody(request, newPatientSchema);
+      return record(await patients.create(session, input, audit));
+    },
+    { scope: "patients:write" },
   );
 }

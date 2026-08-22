@@ -14,10 +14,10 @@ import { Button } from "@/components/ui/button";
  */
 export default function PatientsError({
   error,
-  reset,
+  retry,
 }: {
   error: Error & { digest?: string };
-  reset: () => void;
+  retry: () => void;
 }) {
   return (
     <ErrorState
@@ -26,7 +26,7 @@ export default function PatientsError({
       description="The record list did not come back. This has been logged."
       reference={error.digest}
       action={
-        <Button size="sm" onClick={reset}>
+        <Button size="sm" onClick={retry}>
           Try again
         </Button>
       }

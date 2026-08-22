@@ -1,4 +1,7 @@
-import type { Department, DepartmentId, LeadSource, StaffRole } from "@/lib/types";
+import type { Department, DepartmentId, StaffRole } from "@/lib/types";
+import { patientTagOptions, sourceLabels } from "@/lib/labels";
+
+export { sourceLabels };
 
 /**
  * The demo clock. Every fixture date is derived from this so the build renders
@@ -107,27 +110,7 @@ export const departments: Department[] = [
 export const departmentName = (id: DepartmentId) =>
   departments.find((d) => d.id === id)?.name ?? "Unassigned";
 
-export const sourceLabels: Record<LeadSource, string> = {
-  website: "Website",
-  facebook: "Facebook",
-  google: "Google",
-  phone: "Phone",
-  "walk-in": "Walk-in",
-  referral: "Referral",
-  partner: "Partner",
-  insurance: "Insurance",
-};
-
-export const patientTags = [
-  "VIP",
-  "High priority",
-  "Follow-up required",
-  "New patient",
-  "Returning patient",
-  "Chronic care",
-  "Insurance pending",
-  "Interpreter needed",
-] as const;
+export const patientTags = patientTagOptions;
 
 export const insurers = [
   "MediCare Plus",

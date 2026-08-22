@@ -3,10 +3,18 @@ import { assert, type AuthzSession } from "@/lib/server/authz/policy";
 import { writeAudit, writeFieldUpdates, type AuditContext } from "@/lib/server/audit/write";
 import { withSession, type Tx } from "@/lib/server/db/session";
 import { maskContact, type MaskedField } from "@/lib/server/mask/serialize";
+import {
+  addressCityOf,
+  emailDomainOf,
+  encryptPii,
+  encryptPiiRequired,
+  phoneLast2Of,
+} from "@/lib/server/db/pii";
+import { generateReference } from "@/lib/server/db/reference";
 import { departments } from "@/lib/server/db/schema/org";
 import { doctors, patients, patientTags, tags } from "@/lib/server/db/schema/people";
 import { followUps } from "@/lib/server/db/schema/work";
-import type { PatientStatus } from "@/lib/types";
+import type { Channel, PatientStatus } from "@/lib/types";
 import { fromDbEnum, toDbEnum } from "@/lib/server/db/enum-map";
 import { NotFoundError, mappingDatabaseErrors } from "./errors";
 import { paginate, resolvePage, type PageRequest, type Paginated } from "./pagination";
@@ -87,10 +95,14 @@ export interface NewPatient {
   phone: string;
   email?: string | null;
   address?: string | null;
+  emergencyContact?: { name: string; relation: string; phone: string } | null;
+  preferredChannel?: Channel;
   departmentId?: string | null;
-  doctorId?: string | null;
+  /** A doctor's business reference, resolved to the FK inside `create`'s own transaction. */
+  doctorReference?: string | null;
   source: string;
   insurance?: string | null;
+  tags?: string[];
   notes?: string | null;
 }
 
@@ -345,6 +357,102 @@ function toDetailDTO(session: AuthzSession, row: Record<string, unknown>): Patie
     dateOfBirth: contact.dateOfBirth,
     archived: row.archivedAt !== null,
   };
+}
+
+/**
+ * plan/06-screen-migration.md §5: `/patients/new` "submits via `createPatient`
+ * action". Encrypts the contact fields and derives their fragments the same
+ * way `scripts/seed.ts` does, so a created patient masks identically to a
+ * seeded one.
+ *
+ * `full` is not required — this is not the destructive operation `full` gates
+ * (plan/03 §1); `edit` already covers write access to the resource.
+ */
+export async function create(
+  session: AuthzSession,
+  input: NewPatient,
+  context: AuditContext,
+): Promise<PatientDetailDTO> {
+  assert(session, "patients", "edit");
+
+  return withSession(session, async (tx) =>
+    mappingDatabaseErrors(async () => {
+      const ref = await generateReference("patient", async (candidate) => {
+        const [existing] = await tx
+          .select({ id: patients.id })
+          .from(patients)
+          .where(eq(patients.reference, candidate))
+          .limit(1);
+        return Boolean(existing);
+      });
+
+      // Resolved in this same transaction, the way `appointments.create`
+      // resolves its doctor/patient references — one round trip and one
+      // connection for the whole write, rather than a caller doing this
+      // lookup in a transaction of its own before calling here.
+      let doctorId: string | null = null;
+      if (input.doctorReference) {
+        const [doctor] = await tx
+          .select({ id: doctors.id })
+          .from(doctors)
+          .where(and(eq(doctors.reference, input.doctorReference), isNull(doctors.archivedAt)))
+          .limit(1);
+        if (!doctor) {
+          throw new NotFoundError("That doctor could not be found.", {
+            reference: input.doctorReference,
+          });
+        }
+        doctorId = doctor.id;
+      }
+
+      const [inserted] = await tx
+        .insert(patients)
+        .values({
+          reference: ref,
+          name: input.name,
+          dateOfBirth: input.dateOfBirth,
+          gender: input.gender,
+          phoneEncrypted: encryptPiiRequired(input.phone),
+          emailEncrypted: encryptPii(input.email ?? null),
+          addressEncrypted: encryptPii(input.address ?? null),
+          phoneLast2: phoneLast2Of(input.phone),
+          emailDomain: input.email ? emailDomainOf(input.email) : null,
+          addressCity: input.address ? addressCityOf(input.address) : null,
+          emergencyContact: input.emergencyContact ?? null,
+          preferredChannel: input.preferredChannel ? toDbEnum(input.preferredChannel) : undefined,
+          departmentId: input.departmentId ?? null,
+          doctorId,
+          registeredAt: new Date().toISOString().slice(0, 10),
+          status: toDbEnum("new"),
+          insurance: input.insurance ?? null,
+          source: input.source,
+          notes: input.notes ?? null,
+        })
+        .returning({ id: patients.id, reference: patients.reference });
+
+      const labels = [...new Set(input.tags ?? [])];
+      if (labels.length > 0) {
+        const tagRows = await tx
+          .insert(tags)
+          .values(labels.map((label) => ({ label })))
+          .onConflictDoUpdate({ target: tags.label, set: { label: sql`excluded.label` } })
+          .returning({ id: tags.id });
+        await tx
+          .insert(patientTags)
+          .values(tagRows.map((t) => ({ patientId: inserted.id, tagId: t.id })))
+          .onConflictDoNothing();
+      }
+
+      await writeAudit(tx, session, context, {
+        action: "created",
+        resourceType: "patient",
+        resourceId: inserted.reference,
+        newValue: input.name,
+      });
+
+      return selectDetail(tx, session, eq(patients.id, inserted.id), inserted.reference);
+    }),
+  );
 }
 
 /**

@@ -59,6 +59,18 @@ export function emailDomainOf(email: string): string {
   return email.split("@")[1] ?? "";
 }
 
+/** `patients.phone_last2`, same extraction `scripts/seed.ts`'s `last2()` uses. */
+export function phoneLast2Of(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  return digits.slice(-2).padStart(2, "0");
+}
+
+/** `patients.address_city` — the text after the last comma, same rule `scripts/seed.ts`'s `cityOf()` uses. */
+export function addressCityOf(address: string): string {
+  const parts = address.split(",");
+  return parts[parts.length - 1]?.trim() ?? address;
+}
+
 /**
  * `outbound_messages.to_masked` — no existing masking convention elsewhere
  * in the codebase to match (checked: nothing renders a masked email today,

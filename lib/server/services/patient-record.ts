@@ -15,7 +15,7 @@ import { referrals } from "@/lib/server/db/schema/pipeline";
 import { appointments } from "@/lib/server/db/schema/scheduling";
 import { followUps } from "@/lib/server/db/schema/work";
 import { fromDbEnum } from "@/lib/server/db/enum-map";
-import type { AppointmentStatus, FollowUpStatus, ReferralStatus } from "@/lib/types";
+import type { AppointmentStatus, FollowUpStatus, Priority, ReferralStatus } from "@/lib/types";
 import { NotFoundError } from "./errors";
 
 /**
@@ -44,6 +44,7 @@ export interface RecordAppointment {
   durationMinutes: number;
   location: string | null;
   reason: string | null;
+  notes: string | null;
   doctor: { reference: string; name: string } | null;
   department: string | null;
 }
@@ -53,6 +54,7 @@ export interface RecordFollowUp {
   type: string;
   dueDate: string;
   status: FollowUpStatus;
+  priority: Priority;
   note: string | null;
   owner: string | null;
 }
@@ -70,6 +72,7 @@ export interface RecordReferral {
   reference: string;
   provider: string;
   providerType: string;
+  department: string | null;
   receivedAt: string;
   status: ReferralStatus;
   outcome: string | null;
@@ -81,6 +84,8 @@ export interface RecordFeedback {
   category: string;
   comment: string | null;
   submittedAt: string;
+  doctor: string | null;
+  department: string | null;
 }
 
 export interface RecordDocument {
@@ -140,6 +145,7 @@ export async function bundle(
         durationMinutes: appointments.durationMinutes,
         location: appointments.location,
         reason: appointments.reason,
+        notes: appointments.notes,
         doctorReference: doctors.reference,
         doctorName: doctors.name,
         departmentName: departments.name,
@@ -155,6 +161,7 @@ export async function bundle(
         reference: followUps.reference,
         type: followUps.type,
         dueDate: followUps.dueDate,
+        priority: followUps.priority,
         note: followUps.note,
         ownerName: staff.name,
         status: sql<string>`
@@ -189,11 +196,13 @@ export async function bundle(
         reference: referrals.reference,
         provider: referrals.provider,
         providerType: referrals.providerType,
+        departmentName: departments.name,
         receivedAt: referrals.receivedAt,
         status: referrals.status,
         outcome: referrals.outcome,
       })
       .from(referrals)
+      .leftJoin(departments, eq(departments.id, referrals.departmentId))
       .where(eq(referrals.patientId, id))
       .orderBy(desc(referrals.receivedAt));
 
@@ -204,8 +213,12 @@ export async function bundle(
         category: feedback.category,
         comment: feedback.comment,
         submittedAt: feedback.submittedAt,
+        doctorName: doctors.name,
+        departmentName: departments.name,
       })
       .from(feedback)
+      .leftJoin(doctors, eq(doctors.id, feedback.doctorId))
+      .leftJoin(departments, eq(departments.id, feedback.departmentId))
       .where(eq(feedback.patientId, id))
       .orderBy(desc(feedback.submittedAt));
 
@@ -249,6 +262,7 @@ export async function bundle(
         durationMinutes: row.durationMinutes,
         location: row.location,
         reason: row.reason,
+        notes: row.notes,
         doctor:
           row.doctorReference && row.doctorName
             ? { reference: row.doctorReference, name: row.doctorName }
@@ -260,6 +274,7 @@ export async function bundle(
         type: row.type,
         dueDate: row.dueDate,
         status: row.status as FollowUpStatus,
+        priority: fromDbEnum(row.priority) as Priority,
         note: row.note,
         owner: row.ownerName,
       })),
@@ -278,6 +293,7 @@ export async function bundle(
         reference: row.reference,
         provider: row.provider,
         providerType: row.providerType,
+        department: row.departmentName,
         receivedAt: row.receivedAt.toISOString(),
         status: fromDbEnum(row.status) as ReferralStatus,
         outcome: row.outcome,
@@ -288,6 +304,8 @@ export async function bundle(
         category: row.category,
         comment: row.comment,
         submittedAt: row.submittedAt.toISOString(),
+        doctor: row.doctorName,
+        department: row.departmentName,
       })),
       documents: documentRows.map((row) => ({
         reference: row.reference,
