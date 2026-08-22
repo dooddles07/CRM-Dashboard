@@ -4,12 +4,12 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `/patients/[id]` reads from patient service, not `lib/data/`
-- [ ] All 9 tabs render real data via server shell + `-client.tsx` pattern
-- [ ] Patient timeline tab uses the timeline service
-- [ ] `/patients/new` form submits via Server Action, creates real patient in DB
-- [ ] PII fields render masked; Reveal works end-to-end with audit entry
-- [ ] Both routes have `error.tsx` and Suspense skeletons
-- [ ] No imports from `lib/data/` in either route
+- [x] `/patients/[id]` reads from patient service, not `lib/data/`
+- [x] All 9 tabs render real data via server shell + `-client.tsx` pattern
+- [x] Patient timeline tab uses the timeline service
+- [x] `/patients/new` form submits via Server Action, creates real patient in DB
+- [x] PII fields render masked; Reveal works end-to-end with audit entry
+- [x] Both routes have `error.tsx` and Suspense skeletons
+- [x] No imports from `lib/data/` in either route
