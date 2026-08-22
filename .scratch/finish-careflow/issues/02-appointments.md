@@ -4,13 +4,13 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `/appointments` list reads from appointment service, not `lib/data/`
-- [ ] `/appointments/[id]` detail shows real appointment with patient + doctor info
-- [ ] Calendar view (`/appointments/calendar`) renders real scheduled appointments
-- [ ] Status transitions (confirm, check-in, complete, cancel, reschedule) work via Server Actions
-- [ ] Appointment creation form persists to DB
-- [ ] Double-booking exclusion constraint respected (existing DB constraint)
-- [ ] Both routes have `error.tsx` and Suspense skeletons
-- [ ] No imports from `lib/data/` in appointment routes
+- [x] `/appointments` list reads from appointment service, not `lib/data/`
+- [x] `/appointments/[id]` detail shows real appointment with patient + doctor info
+- [x] Calendar view (`/appointments/calendar`) renders real scheduled appointments
+- [x] Status transitions (confirm, check-in, complete, cancel, reschedule) work via Server Actions
+- [x] Appointment creation form persists to DB
+- [x] Double-booking exclusion constraint respected (existing DB constraint)
+- [x] Both routes have `error.tsx` and Suspense skeletons
+- [x] No imports from `lib/data/` in appointment routes
