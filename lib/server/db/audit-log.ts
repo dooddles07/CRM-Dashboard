@@ -43,5 +43,6 @@ export const auditLog = pgTable("audit_log", {
   occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
   ipAddress: inet("ip_address"),
   userAgent: text("user_agent"),
-  sessionId: uuid("session_id"),
+  // Better Auth's session.id (its default generateId), not a UUID.
+  sessionId: text("session_id"),
 });

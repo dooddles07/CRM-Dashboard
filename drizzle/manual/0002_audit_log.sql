@@ -19,7 +19,8 @@ CREATE TABLE audit_log (
   occurred_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   ip_address     INET,
   user_agent     TEXT,
-  session_id     UUID,
+  -- Better Auth's session.id (its default generateId), not a UUID.
+  session_id     TEXT,
   PRIMARY KEY (id, occurred_at)
 ) PARTITION BY RANGE (occurred_at);
 
