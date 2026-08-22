@@ -365,16 +365,16 @@ export async function linkConverted(
         });
       }
 
-      const won = toDbEnum("won" as LeadStage);
+      const converted = toDbEnum("converted" as LeadStage);
       await tx
         .update(leads)
-        .set({ convertedPatientId: patient.id, stage: won, lastContactAt: new Date() })
+        .set({ convertedPatientId: patient.id, stage: converted, lastContactAt: new Date() })
         .where(eq(leads.id, lead.id));
 
       await tx.insert(leadStageHistory).values({
         leadId: lead.id,
         fromStage: lead.stage,
-        toStage: won,
+        toStage: converted,
         movedBy: session.staffId,
       });
 
