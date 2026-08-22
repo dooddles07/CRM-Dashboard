@@ -107,7 +107,7 @@ export function AppointmentRecordClient({ appointment }: { appointment: Appointm
         return;
       }
       setCancelOpen(false);
-      toast("Appointment cancelled", { description: `${appointment.reference} · the slot is now free.` });
+      toast("Appointment cancelled", { description: `${appointment.reference} · the time is now free.` });
       router.refresh();
     });
   }
@@ -157,7 +157,7 @@ export function AppointmentRecordClient({ appointment }: { appointment: Appointm
                   <DialogHeader>
                     <DialogTitle>Reschedule {appointment.reference}</DialogTitle>
                     <DialogDescription>
-                      The exclusion constraint refuses an overlapping slot for this doctor.
+                      The exclusion constraint refuses an overlapping appointment for this doctor.
                     </DialogDescription>
                   </DialogHeader>
                   <div className="space-y-3.5 py-1">
@@ -212,8 +212,8 @@ export function AppointmentRecordClient({ appointment }: { appointment: Appointm
                   <AlertDialogHeader>
                     <AlertDialogTitle>Cancel {appointment.reference}?</AlertDialogTitle>
                     <AlertDialogDescription>
-                      The slot is released for rebooking. The record and its history stay on the
-                      patient&rsquo;s timeline.
+                      The time is freed for a new appointment. The record and its history stay on
+                      the patient&rsquo;s timeline.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <div className="space-y-1.5 px-1">
@@ -249,9 +249,9 @@ export function AppointmentRecordClient({ appointment }: { appointment: Appointm
 
       <div className="grid items-start gap-4 lg:grid-cols-3 [&>*]:min-w-0">
         <Panel className="lg:col-span-2">
-          <PanelHeader title="Visit details" />
+          <PanelHeader title="Appointment details" />
           <PanelBody className="space-y-4">
-            <Detail label="Reason for visit" value={appointment.reason ?? "Not provided"} muted={!appointment.reason} />
+            <Detail label="Reason for appointment" value={appointment.reason ?? "Not provided"} muted={!appointment.reason} />
             <Detail
               label="Clinical notes"
               value={appointment.notes ?? "No notes recorded for this appointment."}

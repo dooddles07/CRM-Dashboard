@@ -122,7 +122,7 @@ export function AppointmentsClient({
           toast.error(result.message);
           return;
         }
-        toast("Appointment cancelled", { description: `${reference} · the slot is now free.` });
+        toast("Appointment cancelled", { description: `${reference} · the time is now free.` });
         router.refresh();
       });
     },
@@ -472,7 +472,7 @@ function BookAppointmentDialog({
         <Textarea
           id="ap-reason"
           rows={2}
-          placeholder="Chief complaint or purpose of the visit"
+          placeholder="Chief complaint or purpose of the appointment"
           value={reason}
           onChange={(e) => setReason(e.target.value)}
         />

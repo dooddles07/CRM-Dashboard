@@ -9,8 +9,8 @@ import * as appointments from "./appointments";
 /**
  * Same shape as patients.test.ts: one file per service, against the real
  * database (a live Neon branch, not mocked), because the thing most worth
- * proving here — the exclusion constraint refusing a double-booked slot — is
- * a database behaviour no mock would reproduce.
+ * proving here — the exclusion constraint refusing an overlapping appointment
+ * for the same doctor — is a database behaviour no mock would reproduce.
  *
  * Needs DATABASE_URL and CAREFLOW_OWNER_URL_UNPOOLED — see
  * drizzle/manual/README.md. Skips itself when neither is configured.
@@ -33,7 +33,7 @@ const context = { actorName: "appointments.test.ts" };
 const createdReferences: string[] = [];
 
 // Far enough in the future that it cannot collide with seeded appointments.
-const slotStart = "2099-06-01T09:00:00.000Z";
+const firstAppointmentStart = "2099-06-01T09:00:00.000Z";
 
 describe(
   "appointments service (live database)",
@@ -97,9 +97,9 @@ describe(
           patientReference: fixtures.patient!.reference,
           doctorReference: fixtures.doctor!.reference,
           type: "Consultation",
-          startsAt: slotStart,
+          startsAt: firstAppointmentStart,
           durationMinutes: 30,
-          reason: "Test booking",
+          reason: "Test appointment",
         },
         context,
       );
@@ -148,7 +148,7 @@ describe(
       );
     });
 
-    it("refuses an overlapping slot for the same doctor as a 409 SLOT_CONFLICT", async () => {
+    it("refuses an overlapping appointment for the same doctor as a 409 SLOT_CONFLICT", async () => {
       await assert.rejects(
         () =>
           appointments.create(
@@ -156,7 +156,7 @@ describe(
             {
               patientReference: fixtures.patient!.reference,
               doctorReference: fixtures.doctor!.reference,
-              // Overlaps the first booking's 09:00-09:30 window.
+              // Overlaps the first appointment's 09:00-09:30 window.
               type: "Follow-up",
               startsAt: "2099-06-01T09:15:00.000Z",
               durationMinutes: 15,
@@ -173,7 +173,7 @@ describe(
 
       const detail = await appointments.byReference(admin, reference);
       assert.equal(detail.reference, reference);
-      assert.equal(detail.reason, "Test booking");
+      assert.equal(detail.reason, "Test appointment");
 
       const page = await appointments.list(admin, {
         from: "2099-06-01T00:00:00.000Z",
@@ -201,7 +201,7 @@ describe(
       );
     });
 
-    it("cancels an appointment, then frees the slot for a new booking", async () => {
+    it("cancels an appointment, then frees the time for a new appointment", async () => {
       const reference = createdReferences[0];
       const admin = fixtures.admin!.session;
 
@@ -209,8 +209,8 @@ describe(
       assert.equal(cancelled.status, "cancelled");
 
       // The exclusion constraint excludes cancelled rows, so the same
-      // doctor/time slot the first test claimed is bookable again.
-      const rebooked = await appointments.create(
+      // doctor/time the first test claimed is available again.
+      const created = await appointments.create(
         admin,
         {
           patientReference: fixtures.patient!.reference,
@@ -221,8 +221,8 @@ describe(
         },
         context,
       );
-      createdReferences.push(rebooked.reference);
-      assert.equal(rebooked.status, "requested");
+      createdReferences.push(created.reference);
+      assert.equal(created.status, "requested");
     });
   },
 );

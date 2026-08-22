@@ -14,7 +14,7 @@ export default function AppointmentNotFound() {
       <ErrorState
         icon={CalendarX}
         title="We could not find that appointment"
-        description="It may have been cancelled, merged into another booking, or you may not have access to it."
+        description="It may have been cancelled, merged into another appointment, or you may not have access to it."
         reference={reference}
         action={
           <Button size="sm" asChild>
