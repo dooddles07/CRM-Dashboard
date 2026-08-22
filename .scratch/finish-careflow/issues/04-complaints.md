@@ -4,12 +4,12 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `/complaints` list reads from complaint service, not `lib/data/`
-- [ ] Filters by status, priority, department work against real data
-- [ ] `/complaints/[id]` detail shows real case with SLA timeline and status history
-- [ ] Case status transitions (assign, investigate, resolve, close) work via Server Actions
-- [ ] SLA indicators compute from real timestamps
-- [ ] Both routes have `error.tsx` and Suspense skeletons
-- [ ] No imports from `lib/data/` in complaint routes
+- [x] `/complaints` list reads from complaint service, not `lib/data/`
+- [x] Filters by status, priority, department work against real data
+- [x] `/complaints/[id]` detail shows real case with SLA timeline and status history
+- [x] Case status transitions (assign, investigate, resolve, close) work via Server Actions
+- [x] SLA indicators compute from real timestamps
+- [x] Both routes have `error.tsx` and Suspense skeletons
+- [x] No imports from `lib/data/` in complaint routes

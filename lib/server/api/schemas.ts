@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AppointmentStatus, LeadSource, LeadStage, Patient, PatientStatus, Priority } from "@/lib/types";
+import type { AppointmentStatus, CaseStatus, LeadSource, LeadStage, Patient, PatientStatus, Priority } from "@/lib/types";
 
 /**
  * plan/05-http-api.md §2. One schema per boundary, shared by the API and, in
@@ -207,6 +207,41 @@ export const followUpCompleteSchema = z.object({
 
 export const followUpRescheduleSchema = z.object({
   dueDate: z.string().date(),
+});
+
+/* -------------------------------------------------------------------------- */
+/* Complaints                                                                 */
+/* -------------------------------------------------------------------------- */
+
+export const caseStatusEnum = z.enum([
+  "new",
+  "assigned",
+  "investigating",
+  "waiting",
+  "resolved",
+  "closed",
+] satisfies CaseStatus[]);
+
+export const complaintFiltersSchema = pageQuery.extend({
+  status: caseStatusEnum.optional(),
+  priority: z.enum(["low", "medium", "high", "urgent"] satisfies Priority[]).optional(),
+  departmentId: uuid.optional(),
+  ownerId: uuid.optional(),
+  breachedOnly: z.coerce.boolean().optional(),
+});
+
+export const complaintPatchSchema = z
+  .object({
+    status: caseStatusEnum.optional(),
+    priority: z.enum(["low", "medium", "high", "urgent"] satisfies Priority[]).optional(),
+    ownerId: uuid.nullable().optional(),
+  })
+  .refine((patch) => Object.keys(patch).length > 0, {
+    message: "Provide at least one field to change.",
+  });
+
+export const resolveComplaintSchema = z.object({
+  resolution: z.string().trim().min(1, "Add a resolution note.").max(2000),
 });
 
 /* -------------------------------------------------------------------------- */

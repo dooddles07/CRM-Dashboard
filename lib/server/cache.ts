@@ -55,6 +55,7 @@ export const tags = {
   conversations: () => "conversations",
   conversation: (reference: string) => `conversations:${reference}`,
   complaints: () => "complaints",
+  complaint: (reference: string) => `complaints:${reference}`,
   feedback: () => "feedback",
   campaigns: () => "campaigns",
   campaign: (reference: string) => `campaigns:${reference}`,
