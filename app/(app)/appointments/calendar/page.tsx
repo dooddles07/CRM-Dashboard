@@ -1,12 +1,18 @@
-"use client";
-
+import { Suspense } from "react";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { List, Plus } from "lucide-react";
+import { requireSession } from "@/lib/server/auth/session";
+import * as appointments from "@/lib/server/services/appointments";
 import { PageHeader } from "@/components/data/page-header";
-import { AppointmentCalendar } from "@/components/scheduling/appointment-calendar";
+import { ChartSkeleton } from "@/components/data/skeletons";
 import { Button } from "@/components/ui/button";
+import { AppointmentCalendar } from "@/components/scheduling/appointment-calendar";
 
-export default function AppointmentsCalendarPage() {
+export default async function AppointmentsCalendarPage() {
+  const authed = await requireSession();
+  if (!authed) redirect("/login");
+
   return (
     <div className="mx-auto max-w-[100rem]">
       <PageHeader
@@ -29,7 +35,22 @@ export default function AppointmentsCalendarPage() {
           </>
         }
       />
-      <AppointmentCalendar />
+      <Suspense fallback={<ChartSkeleton className="h-[40rem]" />}>
+        <CalendarData />
+      </Suspense>
     </div>
   );
+}
+
+async function CalendarData() {
+  const authed = await requireSession();
+  if (!authed) redirect("/login");
+  const session = authed.authz;
+
+  // The grid navigates weeks client-side over one fetch, same reasoning as
+  // /patients' client-side filtering: the board is small enough that one
+  // wide page beats a round trip per week flipped.
+  const page = await appointments.list(session, { perPage: 100 });
+
+  return <AppointmentCalendar appointments={page.data} />;
 }

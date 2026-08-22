@@ -3,11 +3,9 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import type { Appointment, Tone } from "@/lib/types";
-import { appointments } from "@/lib/data/scheduling";
-import { patientById } from "@/lib/data/people";
+import type { Tone } from "@/lib/types";
+import type { AppointmentDTO } from "@/lib/server/services/appointments";
 import { appointmentStatus } from "@/lib/status";
-import { TODAY } from "@/lib/data/constants";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -47,9 +45,12 @@ function monthLabel(iso: string): string {
   });
 }
 
-export function AppointmentCalendar() {
+export function AppointmentCalendar({ appointments }: { appointments: AppointmentDTO[] }) {
   const router = useRouter();
-  const [weekStart, setWeekStart] = useState(() => mondayOf(TODAY));
+  // `startsAt` is UTC (see appointments.ts's toDTO), so the day bucket below
+  // reads it with the same UTC slice rather than the browser's local zone.
+  const [today] = useState(() => new Date().toISOString().slice(0, 10));
+  const [weekStart, setWeekStart] = useState(() => mondayOf(today));
 
   const days = useMemo(
     () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
@@ -57,13 +58,14 @@ export function AppointmentCalendar() {
   );
 
   const byDay = useMemo(() => {
-    const map = new Map<string, Appointment[]>();
+    const map = new Map<string, AppointmentDTO[]>();
     for (const d of days) map.set(d, []);
     for (const a of appointments) {
-      if (map.has(a.date)) map.get(a.date)!.push(a);
+      const date = a.startsAt.slice(0, 10);
+      if (map.has(date)) map.get(date)!.push(a);
     }
     return map;
-  }, [days]);
+  }, [days, appointments]);
 
   const hours = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => START_HOUR + i);
   const weekAppts = days.reduce((sum, d) => sum + (byDay.get(d)?.length ?? 0), 0);
@@ -88,7 +90,7 @@ export function AppointmentCalendar() {
           >
             <ChevronRight className="size-4" strokeWidth={2} />
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setWeekStart(mondayOf(TODAY))}>
+          <Button variant="outline" size="sm" onClick={() => setWeekStart(mondayOf(today))}>
             Today
           </Button>
           <p className="ml-1 text-h3 text-ink">
@@ -104,7 +106,7 @@ export function AppointmentCalendar() {
           <div className="grid border-b border-line" style={{ gridTemplateColumns: "3.5rem repeat(7, 1fr)" }}>
             <div className="border-r border-line" />
             {days.map((d) => {
-              const isToday = d === TODAY;
+              const isToday = d === today;
               const dow = (new Date(`${d}T00:00:00Z`).getUTCDay() + 6) % 7;
               return (
                 <div
@@ -137,43 +139,40 @@ export function AppointmentCalendar() {
             </div>
 
             {days.map((d) => {
-              const items = (byDay.get(d) ?? []).slice().sort((a, b) => (a.start < b.start ? -1 : 1));
+              const items = (byDay.get(d) ?? []).slice().sort((a, b) => (a.startsAt < b.startsAt ? -1 : 1));
               return (
                 <div
                   key={d}
                   className={cn(
                     "relative border-r border-line last:border-r-0",
-                    d === TODAY && "bg-primary-soft/20",
+                    d === today && "bg-primary-soft/20",
                   )}
                 >
                   {hours.map((h) => (
                     <div key={h} className="border-b border-line/70" style={{ height: HOUR_PX }} />
                   ))}
                   {items.map((a) => {
-                    const [hh, mm] = a.start.split(":").map(Number);
+                    const [hh, mm] = a.startsAt.slice(11, 16).split(":").map(Number);
                     const top = (hh - START_HOUR) * HOUR_PX + (mm / 60) * HOUR_PX;
                     const height = Math.max((a.durationMinutes / 60) * HOUR_PX - 2, 20);
                     if (hh < START_HOUR || hh >= END_HOUR) return null;
                     const meta = appointmentStatus[a.status];
-                    const patient = patientById(a.patientId);
                     return (
                       <button
-                        key={a.id}
+                        key={a.reference}
                         type="button"
-                        onClick={() => router.push(`/appointments/${a.id}`)}
-                        title={`${patient?.name ?? a.patientId} · ${a.type} · ${meta.label}`}
+                        onClick={() => router.push(`/appointments/${a.reference}`)}
+                        title={`${a.patient.name} · ${a.type} · ${meta.label}`}
                         className={cn(
                           "absolute inset-x-1 overflow-hidden rounded-[5px] border px-1.5 py-1 text-left transition-shadow hover:shadow-raised cursor-pointer",
                           toneBlock[meta.tone],
                         )}
                         style={{ top, height }}
                       >
-                        <p className="truncate text-caption font-medium leading-4">
-                          {patient?.name ?? a.patientId}
-                        </p>
+                        <p className="truncate text-caption font-medium leading-4">{a.patient.name}</p>
                         {height > 30 && (
                           <p className="truncate text-[0.6875rem] leading-4 opacity-80">
-                            {a.start} · {a.type}
+                            {a.startsAt.slice(11, 16)} · {a.type}
                           </p>
                         )}
                       </button>
