@@ -42,7 +42,7 @@ export interface AuthedSession {
 
 /**
  * Resolves and validates the current request's session against every
- * server-side invariant plan §4 and the last paragraph of §2.2 require:
+ * server-side invariant plan §4 requires:
  *
  *  1. A Better Auth session actually exists for the request (cookie present,
  *     token valid, not past its absolute `expiresIn` ceiling — all handled
@@ -57,25 +57,16 @@ export interface AuthedSession {
  *     (`additionalFields`), since that column isn't declared to Better
  *     Auth and doesn't need to be — nothing here needs Better Auth's own
  *     query builder to know about it.
- *  3. `user.twoFactorEnabled` is true. Defense-in-depth, not the primary
- *     mechanism: verified against
- *     node_modules/better-auth/dist/plugins/two-factor/index.mjs, a
- *     session is normally never created at all for an unverified sign-in
- *     — the twoFactor plugin's post-sign-in hook deletes the session
- *     `/sign-in/email` just created and swaps in a short-lived challenge
- *     cookie instead, so a *live* session already implies MFA passed for
- *     accounts that were enrolled correctly. This check is a cheap backstop
- *     for the case that invariant doesn't cover — an account that reaches
- *     sign-in with `twoFactorEnabled` still false (e.g. an invite-
- *     acceptance transaction, Task 3's job, that didn't finish enrolling
- *     TOTP) — without blocking *session creation* itself the way the
- *     staff-row invariant does in ./index.ts's `databaseHooks`. See
- *     task-2-report.md for why this one is read-side only.
- *  4. `session.userId` resolves to a `staff` row (plan §2.2's last
+ *  3. `session.userId` resolves to a `staff` row (plan §2.2's last
  *     paragraph). Session *creation* is already blocked for this case by
  *     `databaseHooks.session.create.before` in ./index.ts — this repeats
  *     the check on read so a session created before a `staff` row existed,
  *     or before this code shipped, can't linger.
+ *
+ * No longer checks `user.twoFactorEnabled` — MFA enforcement was turned off
+ * (password-only login). The `twoFactor` plugin, `/mfa`, and the enrolment
+ * actions in ./actions.ts are still wired up but unreached in the normal
+ * sign-in flow now that no account requires a second factor.
  *
  * Returns `null` on any failure rather than throwing or redirecting.
  * Redirecting is presentation-layer behaviour (proxy.ts does it for the
@@ -107,8 +98,6 @@ export async function resolveSession(headers: Headers): Promise<AuthedSession | 
   const result = await auth.api.getSession({ headers });
   if (!result) return null;
   const { session, user } = result;
-
-  if (!user.twoFactorEnabled) return null;
 
   const [sessionRow] = await db
     .select({ lastSeenAt: sessionTable.lastSeenAt, impersonatedBy: sessionTable.impersonatedBy })

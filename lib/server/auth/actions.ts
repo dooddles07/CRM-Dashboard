@@ -173,18 +173,9 @@ export async function signInAction(input: {
     ip,
   });
 
-  if (result.user.twoFactorEnabled) {
-    return { ok: true, next: "/" };
-  }
-  // Not enrolled yet — force enrolment before this session is good for
-  // anything else. session.ts's `resolveSession` already refuses any
-  // `requireSession()`-gated route for a `twoFactorEnabled: false` user, so
-  // this is enforced server-side regardless of where the client navigates;
-  // sending them to /mfa here just gets them there directly instead of
-  // bouncing off a protected route first. See task-4-report.md §6 for why
-  // this ("resume enrolment on next sign-in") was chosen over the
-  // account-unusable alternative.
-  return { ok: true, next: `/mfa${remember}` };
+  // MFA enforcement is off — session.ts's `resolveSession` no longer
+  // requires `twoFactorEnabled`, so there is nothing left to force here.
+  return { ok: true, next: "/" };
 }
 
 /* -------------------------------------------------------------------------- */
