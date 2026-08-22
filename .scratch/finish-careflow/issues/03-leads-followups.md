@@ -4,14 +4,14 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `/leads` board reads from lead service, not `lib/data/`
-- [ ] Drag-and-drop stage changes persist via Server Action using lead stage service
-- [ ] `/leads/[id]` detail shows real lead with stage history and activity
-- [ ] Lead conversion (lead to patient) works end-to-end
-- [ ] `/follow-ups` list reads from follow-up service with real due dates
-- [ ] Follow-up status transitions (complete, reschedule) work via Server Actions
-- [ ] Overdue follow-ups display correctly based on real dates
-- [ ] All three routes have `error.tsx` and Suspense skeletons
-- [ ] No imports from `lib/data/` in leads or follow-ups routes
+- [x] `/leads` board reads from lead service, not `lib/data/`
+- [x] Drag-and-drop stage changes persist via Server Action using lead stage service
+- [x] `/leads/[id]` detail shows real lead with stage history and activity
+- [x] Lead conversion (lead to patient) works end-to-end
+- [x] `/follow-ups` list reads from follow-up service with real due dates
+- [x] Follow-up status transitions (complete, reschedule) work via Server Actions
+- [x] Overdue follow-ups display correctly based on real dates
+- [x] All three routes have `error.tsx` and Suspense skeletons
+- [x] No imports from `lib/data/` in leads or follow-ups routes
