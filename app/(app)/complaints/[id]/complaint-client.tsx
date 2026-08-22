@@ -281,11 +281,11 @@ export function ComplaintRecordClient({
                 </Link>
               </Button>
             </>
-          ) : (
+          ) : complaint.status === "resolved" ? (
             <Button size="sm" disabled={pending} onClick={() => advance("closed")}>
               Close case
             </Button>
-          )
+          ) : null
         }
         tabs={[
           { id: "details", label: "Details" },
