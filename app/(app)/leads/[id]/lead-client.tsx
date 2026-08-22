@@ -254,7 +254,14 @@ function ConvertLeadDialog({ lead, departments }: { lead: LeadDTO; departments: 
 
       const linked = await convertLead(lead.reference, created.data.reference);
       if (!linked.ok) {
-        toast.error(linked.message);
+        // The patient was already created and is a real, valid record —
+        // archiving it back out would need `patients:full`, which the
+        // roles that actually do conversions (Marketing, Patient Relations)
+        // don't hold. Naming it here instead, so a retry doesn't create a
+        // second patient for the same person.
+        toast.error(
+          `${linked.message} A patient record (${created.data.reference}) was already created — check it before converting again.`,
+        );
         return;
       }
 
